@@ -60,6 +60,11 @@
                 <span class="nav__text">Groovy 提取 SQL</span>
                 <span class="nav__kbd" title="Ctrl + Shift + 6">⇧6</span>
             </a>
+            <a class="nav__item" href="#/billrule" data-route="billrule">
+                <span class="nav__icon">▦</span>
+                <span class="nav__text">转单规则 SQL</span>
+                <span class="nav__kbd" title="Ctrl + Shift + 7">⇧7</span>
+            </a>
         </nav>
 
         <div class="sidebar__foot">
@@ -78,7 +83,7 @@
             <button class="icon-btn topbar__menu" id="menuBtn" type="button" aria-label="打开导航">☰</button>
             <div class="topbar__heading">
                 <h1 id="pageTitle">总览</h1>
-                <p id="pageDesc">六个常用的小工具，覆盖调试、接口联调与数据准备场景。</p>
+                <p id="pageDesc">七个常用的小工具，覆盖调试、接口联调与数据准备场景。</p>
             </div>
             <div class="topbar__actions">
                 <button class="ghost-btn" id="wrapToggle" type="button" title="切换输入区自动换行（结果区始终自动换行）">
@@ -115,7 +120,7 @@
                 </div>
 
                 <div class="stat-row">
-                    <div class="stat"><strong>6</strong><span>可用工具</span></div>
+                    <div class="stat"><strong>7</strong><span>可用工具</span></div>
                     <div class="stat"><strong>4</strong><span>空格缩进</span></div>
                     <div class="stat"><strong>10+</strong><span>支持文件格式</span></div>
                     <div class="stat"><strong>9</strong><span>键盘快捷键</span></div>
@@ -161,6 +166,12 @@
                         <span class="tool-card__icon">⌘</span>
                         <h4>Groovy 提取 SQL</h4>
                         <p>从 Groovy 代码中提取纯 SQL 语句（Update / Delete），支持代码文件直接拖入。</p>
+                        <span class="tool-card__link">打开工具 →</span>
+                    </a>
+                    <a class="tool-card" href="#/billrule">
+                        <span class="tool-card__icon">▦</span>
+                        <h4>转单规则 SQL</h4>
+                        <p>读取转单规则配置模板（.xlsx），按行生成可直接执行的明细 INSERT 语句。</p>
                         <span class="tool-card__link">打开工具 →</span>
                     </a>
                 </div>
@@ -483,6 +494,78 @@
                         </div>
                         <div class="panel__foot">
                             <span class="chip chip--accent" id="groovyStats">已提取: 0 条SQL</span>
+                        </div>
+                    </article>
+                </div>
+            </section>
+
+            <!-- ================= 转单规则 SQL ================= -->
+            <section class="view" id="view-billrule" hidden>
+                <div class="view__head">
+                    <div class="view__intro">
+                        <h2>转单规则 SQL</h2>
+                        <p>读取转单规则配置模板（.xlsx），按录入的每一行生成一条可直接执行的明细 INSERT 语句。</p>
+                    </div>
+                    <div class="view__actions">
+                        <button class="btn btn--primary" data-action="billrule.run">生成 SQL</button>
+                        <button class="btn btn--ghost" data-action="billrule.clear">清空</button>
+                    </div>
+                </div>
+
+                <div class="filter-bar">
+                    <label class="field">
+                        <span class="field__label">起始雪花 ID *</span>
+                        <input type="text" id="billRuleStartId" inputmode="numeric"
+                               placeholder="例如：1443166316329340928">
+                    </label>
+                    <label class="field">
+                        <span class="field__label">makebill_id（转单规则主表 ID）*</span>
+                        <input type="text" id="billRuleMakebillId" inputmode="numeric"
+                               placeholder="例如：2664164073513418780">
+                    </label>
+                    <p class="filter-bar__hint">
+                        目标表：<code>iuap_apcom_businesssflow.domain_make_bill_rule_detail</code>
+                    </p>
+                </div>
+
+                <div class="notice" id="billRuleNotice"></div>
+
+                <div class="workspace workspace--wide">
+                    <article class="panel">
+                        <header class="panel__head">
+                            <h3>Excel 配置模板</h3>
+                            <div class="panel__tools">
+                                <a class="mini-btn" href="assets/bill-rule-template.xlsx"
+                                   download="转单规则配置模板.xlsx"
+                                   data-template-download>下载模板</a>
+                                <span class="chip" id="billRuleFileChip">未选择文件</span>
+                            </div>
+                        </header>
+
+                        <div class="dropzone" id="billRuleDropzone">
+                            <input type="file" id="billRuleFileInput" hidden accept=".xlsx">
+                            <span class="dropzone__icon">⬆</span>
+                            <p>拖拽模板到此处，或 <button class="link-btn" data-action="billrule.pickFile">选择文件</button></p>
+                            <small>支持 .xlsx（转单规则配置模板）· 没有模板？<a class="link-btn" href="assets/bill-rule-template.xlsx" download="转单规则配置模板.xlsx" data-template-download>下载</a></small>
+                        </div>
+                        <ul class="filelist" id="billRuleFileList"></ul>
+
+                        <div class="panel__foot">
+                            <span class="chip chip--accent" id="billRuleStats">已读取: 0 行</span>
+                        </div>
+                    </article>
+
+                    <article class="panel">
+                        <header class="panel__head">
+                            <h3>生成的 SQL</h3>
+                            <div class="panel__tools">
+                                <button class="mini-btn" data-action="billrule.copy">复制</button>
+                                <button class="mini-btn" data-action="billrule.download">下载 SQL</button>
+                            </div>
+                        </header>
+                        <div class="editor editor--code" data-editor="billRuleOutput">
+                            <div class="editor__gutter" data-gutter="billRuleOutput"></div>
+                            <pre class="editor__code" id="billRuleOutput"><span class="editor__placeholder">生成的 SQL 将在这里显示…</span></pre>
                         </div>
                     </article>
                 </div>

@@ -158,16 +158,17 @@
     }
 
     const ROUTES = {
-        home: { title: '总览', desc: '六个常用的小工具，覆盖调试、接口联调与数据准备场景。' },
+        home: { title: '总览', desc: '七个常用的小工具，覆盖调试、接口联调与数据准备场景。' },
         format: { title: 'JSON 格式化', desc: '校验并美化 JSON 字符串，输出 4 空格缩进的规范格式。' },
         compare: { title: 'JSON 对比', desc: '深度比较两个 JSON，差异行直接高亮在文本上。' },
         assert: { title: 'JSON 断言生成', desc: '根据接口响应 JSON 自动生成 assert 断言代码。' },
         uid: { title: 'UID 提取', desc: '提取以 UID: 开头的唯一标识符，自动去重排序。' },
         idreplace: { title: '批量 ID 替换', desc: '将 SQL 中的数字 ID 替换为连续的雪花 ID。' },
-        groovy: { title: 'Groovy 提取 SQL', desc: '从 Groovy 代码中提取 Update / Delete 语句。' }
+        groovy: { title: 'Groovy 提取 SQL', desc: '从 Groovy 代码中提取 Update / Delete 语句。' },
+        billrule: { title: '转单规则 SQL', desc: '读取转单规则配置模板，按行生成可直接执行的明细 INSERT 语句。' }
     };
 
-    const TOOL_ROUTES = ['format', 'compare', 'assert', 'uid', 'idreplace', 'groovy'];
+    const TOOL_ROUTES = ['format', 'compare', 'assert', 'uid', 'idreplace', 'groovy', 'billrule'];
 
     function currentRoute() {
         const hash = (location.hash || '').replace(/^#\/?/, '');
@@ -1307,7 +1308,551 @@
     }
 
     /* ---------------------------------------------------------
-     * 12. 事件绑定
+     * 12. XLSX 解析（浏览器端最小实现：ZIP + SheetML）
+     * ------------------------------------------------------- */
+
+    /** 解压 ZIP 条目（存储方式或 deflate） */
+    async function unzip(buffer) {
+        const bytes = new Uint8Array(buffer);
+        const view = new DataView(buffer);
+
+        // 定位中央目录结束记录（EOCD）
+        let eocd = -1;
+        const minPos = Math.max(0, bytes.length - 22 - 65535);
+        for (let i = bytes.length - 22; i >= minPos; i--) {
+            if (view.getUint32(i, true) === 0x06054b50) { eocd = i; break; }
+        }
+        if (eocd < 0) throw new Error('文件不是有效的 xlsx（未找到 ZIP 结构）');
+
+        const count = view.getUint16(eocd + 10, true);
+        let pointer = view.getUint32(eocd + 16, true);
+        const decoder = new TextDecoder();
+        const entries = [];
+
+        for (let i = 0; i < count; i++) {
+            if (view.getUint32(pointer, true) !== 0x02014b50) break;
+            const method = view.getUint16(pointer + 10, true);
+            const compressedSize = view.getUint32(pointer + 20, true);
+            const nameLength = view.getUint16(pointer + 28, true);
+            const extraLength = view.getUint16(pointer + 30, true);
+            const commentLength = view.getUint16(pointer + 32, true);
+            const localOffset = view.getUint32(pointer + 42, true);
+            const name = decoder.decode(bytes.subarray(pointer + 46, pointer + 46 + nameLength));
+            entries.push({ name, method, compressedSize, localOffset });
+            pointer += 46 + nameLength + extraLength + commentLength;
+        }
+
+        const files = {};
+        for (const entry of entries) {
+            const local = entry.localOffset;
+            const nameLength = view.getUint16(local + 26, true);
+            const extraLength = view.getUint16(local + 28, true);
+            const dataStart = local + 30 + nameLength + extraLength;
+            const raw = bytes.subarray(dataStart, dataStart + entry.compressedSize);
+
+            if (entry.method === 0) {
+                files[entry.name] = raw;
+            } else if (entry.method === 8) {
+                files[entry.name] = await inflateRaw(raw);
+            }
+        }
+        return files;
+    }
+
+    async function inflateRaw(data) {
+        if (typeof DecompressionStream === 'undefined') {
+            throw new Error('当前浏览器不支持解压 xlsx，请升级到 Chrome 103+ / Edge 103+');
+        }
+        const stream = new Blob([data]).stream().pipeThrough(new DecompressionStream('deflate-raw'));
+        return new Uint8Array(await new Response(stream).arrayBuffer());
+    }
+
+    function xmlTextOf(bytes) {
+        if (!bytes) return '';
+        return new TextDecoder('utf-8').decode(bytes);
+    }
+
+    function parseXml(text) {
+        return new DOMParser().parseFromString(text, 'application/xml');
+    }
+
+    function columnIndexFromRef(ref) {
+        const letters = String(ref || '').match(/^[A-Z]+/);
+        if (!letters) return -1;
+        let index = 0;
+        for (const char of letters[0]) index = index * 26 + (char.charCodeAt(0) - 64);
+        return index - 1;
+    }
+
+    function parseSharedStrings(xmlText) {
+        if (!xmlText) return [];
+        const doc = parseXml(xmlText);
+        const nodes = doc.getElementsByTagName('si');
+        const list = [];
+        for (let i = 0; i < nodes.length; i++) {
+            const texts = nodes[i].getElementsByTagName('t');
+            let value = '';
+            for (let j = 0; j < texts.length; j++) value += texts[j].textContent;
+            list.push(value);
+        }
+        return list;
+    }
+
+    /** 找到第一个工作表对应的 XML 文本 */
+    function firstSheetXml(files) {
+        const workbook = files['xl/workbook.xml'];
+        const rels = files['xl/_rels/workbook.xml.rels'];
+        if (workbook && rels) {
+            const relMap = {};
+            const relDoc = parseXml(xmlTextOf(rels));
+            const relationships = relDoc.getElementsByTagName('Relationship');
+            for (let i = 0; i < relationships.length; i++) {
+                relMap[relationships[i].getAttribute('Id')] = relationships[i].getAttribute('Target');
+            }
+            const workbookDoc = parseXml(xmlTextOf(workbook));
+            const sheets = workbookDoc.getElementsByTagName('sheet');
+            for (let i = 0; i < sheets.length; i++) {
+                const relId = sheets[i].getAttribute('r:id') ||
+                    sheets[i].getAttributeNS('http://schemas.openxmlformats.org/officeDocument/2006/relationships', 'id');
+                const target = relMap[relId];
+                if (!target) continue;
+                const path = target.charAt(0) === '/' ? target.slice(1) : 'xl/' + target.replace(/^\.\//, '');
+                if (files[path]) return xmlTextOf(files[path]);
+            }
+        }
+        const fallback = Object.keys(files)
+            .filter(name => /^xl\/worksheets\/.*\.xml$/.test(name))
+            .sort()[0];
+        return fallback ? xmlTextOf(files[fallback]) : '';
+    }
+
+    /** 解析工作表为二维数组 */
+    function parseSheet(xmlText, sharedStrings) {
+        const doc = parseXml(xmlText);
+        const rowNodes = doc.getElementsByTagName('row');
+        const rows = [];
+
+        for (let i = 0; i < rowNodes.length; i++) {
+            const rowNode = rowNodes[i];
+            const cells = [];
+            const cellNodes = rowNode.getElementsByTagName('c');
+            let autoIndex = 0;
+
+            for (let j = 0; j < cellNodes.length; j++) {
+                const cell = cellNodes[j];
+                let index = autoIndex;
+                const ref = cell.getAttribute('r');
+                if (ref) {
+                    const parsed = columnIndexFromRef(ref);
+                    if (parsed > -1) index = parsed;
+                }
+                cells[index] = readCell(cell, sharedStrings);
+                autoIndex = index + 1;
+            }
+            rows.push(cells);
+        }
+        return rows;
+    }
+
+    function readCell(cell, sharedStrings) {
+        const type = cell.getAttribute('t');
+        if (type === 'inlineStr') {
+            const inline = cell.getElementsByTagName('is')[0];
+            if (!inline) return '';
+            const texts = inline.getElementsByTagName('t');
+            let value = '';
+            for (let i = 0; i < texts.length; i++) value += texts[i].textContent;
+            return value;
+        }
+        const valueNode = cell.getElementsByTagName('v')[0];
+        const raw = valueNode ? valueNode.textContent : '';
+        if (type === 's') {
+            const index = parseInt(raw, 10);
+            return isNaN(index) ? '' : (sharedStrings[index] || '');
+        }
+        if (type === 'b') return raw === '1' ? 'TRUE' : 'FALSE';
+        if (type === 'e') return '';
+        return raw;
+    }
+
+    /** 读取 xlsx 并整理成「表头 + 数据行」结构 */
+    async function readBillRuleWorkbook(file) {
+        const buffer = await file.arrayBuffer();
+        const files = await unzip(buffer);
+        const sharedStrings = parseSharedStrings(xmlTextOf(files['xl/sharedStrings.xml']));
+        const sheetXml = firstSheetXml(files);
+        if (!sheetXml) throw new Error('未在文件中找到工作表');
+        const grid = parseSheet(sheetXml, sharedStrings);
+
+        if (!grid.length) throw new Error('工作表是空的');
+
+        const headerRow = grid[0] || [];
+        const required = [];
+        const columnIndex = {};
+
+        headerRow.forEach((raw, index) => {
+            const label = String(raw || '').trim();
+            if (!label) return;
+            const key = normalizeHeader(label);
+            if (!key) return;
+            if (label.charAt(0) === '*') required.push({ key, label: '*' + key });
+            if (BILL_RULE_EXCEL_COLUMNS.indexOf(key) > -1 && columnIndex[key] === undefined) {
+                columnIndex[key] = index;
+            }
+        });
+
+        const missing = BILL_RULE_EXCEL_COLUMNS.filter(key => columnIndex[key] === undefined);
+        if (missing.length) {
+            throw new Error('模板缺少必需的列：' + missing.join('、'));
+        }
+
+        const rows = [];
+        for (let i = 1; i < grid.length; i++) {
+            const cells = grid[i] || [];
+            const isEmpty = cells.every(cell => cell === undefined || String(cell).trim() === '');
+            if (isEmpty) continue;
+
+            const values = {};
+            BILL_RULE_EXCEL_COLUMNS.forEach(key => {
+                const cell = cells[columnIndex[key]];
+                values[key] = cell === undefined || cell === null ? '' : String(cell).trim();
+            });
+            rows.push({ rowNumber: i + 1, values: values });
+        }
+
+        return { required: required, rows: rows };
+    }
+
+    function handleBillRuleFiles(files) {
+        if (!files || !files.length) return;
+        const file = files[0];
+        if (!/\.xlsx$/i.test(file.name)) {
+            toast('仅支持 .xlsx 格式的模板文件', 'warning');
+            return;
+        }
+
+        const chip = $('#billRuleFileChip');
+        if (chip) chip.textContent = '正在读取…';
+
+        readBillRuleWorkbook(file)
+            .then(sheet => {
+                billRuleSheet = sheet;
+                if (chip) chip.textContent = file.name;
+                $('#billRuleStats').textContent = '已读取: ' + sheet.rows.length + ' 行';
+                showBillRuleNotice([]);
+
+                const list = $('#billRuleFileList');
+                if (list) {
+                    list.innerHTML = '';
+                    const item = document.createElement('li');
+                    item.className = 'file-item';
+                    item.innerHTML = '<span><span class="file-name">' + escapeHtml(file.name) +
+                        '</span><span class="file-size">(' + formatFileSize(file.size) + ')</span></span>' +
+                        '<button class="file-remove" type="button" aria-label="移除">×</button>';
+                    item.querySelector('.file-remove').addEventListener('click', () => {
+                        item.remove();
+                        billRuleSheet = null;
+                        if (chip) chip.textContent = '未选择文件';
+                        $('#billRuleStats').textContent = '已读取: 0 行';
+                    });
+                    list.appendChild(item);
+                }
+                toast('已读取 ' + sheet.rows.length + ' 行数据', 'success');
+            })
+            .catch(error => {
+                console.error('读取 xlsx 失败:', error);
+                billRuleSheet = null;
+                if (chip) chip.textContent = '未选择文件';
+                $('#billRuleStats').textContent = '已读取: 0 行';
+                showBillRuleNotice([error.message || '读取文件失败']);
+                toast(error.message || '读取文件失败', 'error');
+            });
+    }
+
+    function setupBillRuleDropzone() {
+        const dropzone = $('#billRuleDropzone');
+        const fileInput = $('#billRuleFileInput');
+        if (!dropzone || !fileInput) return;
+
+        ['dragenter', 'dragover', 'dragleave', 'drop'].forEach(name => {
+            dropzone.addEventListener(name, e => {
+                e.preventDefault();
+                e.stopPropagation();
+            });
+        });
+        ['dragenter', 'dragover'].forEach(name => {
+            dropzone.addEventListener(name, () => dropzone.classList.add('is-over'));
+        });
+        ['dragleave', 'drop'].forEach(name => {
+            dropzone.addEventListener(name, () => dropzone.classList.remove('is-over'));
+        });
+        dropzone.addEventListener('drop', e => {
+            handleBillRuleFiles(e.dataTransfer && e.dataTransfer.files);
+        });
+        fileInput.addEventListener('change', e => {
+            handleBillRuleFiles(e.target.files);
+            e.target.value = '';
+        });
+        dropzone.addEventListener('click', e => {
+            if (e.target.closest('.link-btn')) return;
+            fileInput.click();
+        });
+    }
+
+    /** 模板下载入口：保留浏览器默认下载行为，仅提示用户 */
+    function setupTemplateDownloads() {
+        document.querySelectorAll('[data-template-download]').forEach(link => {
+            link.addEventListener('click', () => {
+                toast('模板下载已开始', 'success');
+            });
+        });
+    }
+
+    /* ---------------------------------------------------------
+     * 13. 工具七：转单规则 SQL 生成
+     * ------------------------------------------------------- */
+
+    const BILL_RULE_TABLE = 'iuap_apcom_businesssflow.domain_make_bill_rule_detail';
+
+    /** 参与生成的 Excel 列（表头去掉 * 与括号注释后的名字） */
+    const BILL_RULE_EXCEL_COLUMNS = [
+        'origin_field', 'target_field', 'mapped_relation', 'mapped_type',
+        'child_key', 'parent_key', 'source_child_key', 'source_parent_key',
+        'is_business_object', 'micro_service_code'
+    ];
+
+    /** 数值型字段：写入 SQL 时不加引号 */
+    const BILL_RULE_NUMERIC_COLUMNS = ['mapped_relation', 'mapped_type', 'is_business_object'];
+
+    /** Excel 中未填写时使用的默认值 */
+    const BILL_RULE_DEFAULTS = {
+        is_business_object: '0',
+        micro_service_code: 'yonbip-mm-qms'
+    };
+
+    /**
+     * 明细表字段顺序与取值来源
+     * row     —— 当前行主键（起始雪花 ID + 行序号）
+     * shared  —— 所有行共用的 makebill_id
+     * excel   —— 取自 Excel 对应列
+     * now     —— 生成时的当前时间
+     * const   —— 固定值
+     */
+    const BILL_RULE_COLUMNS = [
+        ['id', 'row'],
+        ['makebill_id', 'shared'],
+        ['origin_field', 'excel'],
+        ['target_field', 'excel'],
+        ['mapped_relation', 'excel'],
+        ['mapped_type', 'excel'],
+        ['calculate_formulas', 'const', null],
+        ['origin_key', 'const', 0],
+        ['is_write_back', 'const', 0],
+        ['write_back_type', 'const', null],
+        ['write_back_str', 'const', null],
+        ['is_comparefield', 'const', 0],
+        ['compare_rule', 'const', null],
+        ['is_edit', 'const', 0],
+        ['create_time', 'const', null],
+        ['modify_time', 'const', null],
+        ['creator', 'const', null],
+        ['modifier', 'const', null],
+        ['is_deleted', 'const', 0],
+        ['pubts', 'now'],
+        ['sub_id', 'const', 'QMSQIT'],
+        ['i_compute_type', 'const', null],
+        ['child_key', 'excel'],
+        ['is_sys', 'const', 1],
+        ['source_child_key', 'excel'],
+        ['fullname_ext', 'const', null],
+        ['attribute_ext', 'const', null],
+        ['field_ext', 'const', null],
+        ['relation_key', 'const', null],
+        ['ref_field_ext', 'const', null],
+        ['is_hidden', 'const', 0],
+        ['calculate_formulas_display', 'const', null],
+        ['category', 'const', 'QMSQIT'],
+        ['target_field_display', 'const', null],
+        ['target_field_name', 'const', null],
+        ['origin_field_display', 'const', null],
+        ['origin_field_name', 'const', null],
+        ['target_field_type', 'const', null],
+        ['origin_field_type', 'const', null],
+        ['seq', 'const', null],
+        ['target_path', 'const', null],
+        ['target_parent_path', 'const', null],
+        ['parent_key', 'excel'],
+        ['grand_parent_key', 'const', null],
+        ['source_path', 'const', null],
+        ['source_parent_path', 'const', null],
+        ['source_parent_key', 'excel'],
+        ['source_grand_parent_key', 'const', null],
+        ['origin_field_option', 'const', null],
+        ['target_field_option', 'const', null],
+        ['is_business_object', 'excel'],
+        ['origin_field_resid', 'const', null],
+        ['micro_service_code', 'excel'],
+        ['applicationCode', 'const', null],
+        ['target_field_resid', 'const', null],
+        ['target_fileld_resid', 'const', null]
+    ];
+
+    /** 当前读取到的模板数据 */
+    let billRuleSheet = null;
+
+    function formatNow() {
+        const d = new Date();
+        const pad = n => String(n).padStart(2, '0');
+        return d.getFullYear() + '-' + pad(d.getMonth() + 1) + '-' + pad(d.getDate()) +
+            ' ' + pad(d.getHours()) + ':' + pad(d.getMinutes()) + ':' + pad(d.getSeconds());
+    }
+
+    function sqlLiteral(value, numeric) {
+        if (value === null || value === undefined || value === '') return 'NULL';
+        const text = String(value).trim();
+        if (text === '') return 'NULL';
+        if (numeric && /^-?\d+(\.\d+)?$/.test(text)) return text;
+        return "'" + text.replace(/'/g, "''") + "'";
+    }
+
+    /** 去掉表头里的必填标记与括号说明，转成字段名 */
+    function normalizeHeader(raw) {
+        return String(raw || '')
+            .replace(/^\*/, '')
+            .replace(/[（(][^）)]*[）)]?$/, '')
+            .trim()
+            .toLowerCase();
+    }
+
+    function buildBillRuleSql(dataRows, context) {
+        const columnList = BILL_RULE_COLUMNS.map(item => item[0]).join(', ');
+        const now = formatNow();
+        const statements = [];
+
+        dataRows.forEach((row, index) => {
+            const values = BILL_RULE_COLUMNS.map(item => {
+                const column = item[0];
+                const kind = item[1];
+
+                if (kind === 'row') {
+                    return sqlLiteral((context.startId + BigInt(index)).toString(), false);
+                }
+                if (kind === 'shared') {
+                    return sqlLiteral(context.makebillId, false);
+                }
+                if (kind === 'now') {
+                    return sqlLiteral(now, false);
+                }
+                if (kind === 'const') {
+                    const constant = item[2];
+                    return constant === null || constant === undefined
+                        ? 'NULL'
+                        : sqlLiteral(constant, typeof constant === 'number');
+                }
+
+                // excel
+                const raw = row.values[column];
+                const text = (raw === null || raw === undefined) ? '' : String(raw).trim();
+                if (text === '') {
+                    const fallback = BILL_RULE_DEFAULTS[column];
+                    if (fallback !== undefined) return sqlLiteral(fallback, BILL_RULE_NUMERIC_COLUMNS.indexOf(column) > -1);
+                    return 'NULL';
+                }
+                return sqlLiteral(text, BILL_RULE_NUMERIC_COLUMNS.indexOf(column) > -1);
+            });
+
+            statements.push(
+                'INSERT INTO ' + BILL_RULE_TABLE + '\n(' + columnList + ')\nVALUES(' + values.join(', ') + ');'
+            );
+        });
+
+        return statements;
+    }
+
+    function showBillRuleNotice(messages) {
+        const box = $('#billRuleNotice');
+        if (!box) return;
+        if (!messages || !messages.length) {
+            box.textContent = '';
+            box.classList.remove('is-show');
+            return;
+        }
+        box.textContent = messages.join('\n');
+        box.classList.add('is-show');
+    }
+
+    function runBillRule(button) {
+        const errors = [];
+
+        const startText = $('#billRuleStartId').value.trim();
+        const makebillText = $('#billRuleMakebillId').value.trim();
+
+        if (!startText) errors.push('请填写「起始雪花 ID」');
+        else if (!/^\d+$/.test(startText)) errors.push('「起始雪花 ID」必须是数字');
+        if (!makebillText) errors.push('请填写「makebill_id（转单规则主表 ID）」');
+        else if (!/^\d+$/.test(makebillText)) errors.push('「makebill_id」必须是数字');
+
+        if (!billRuleSheet) errors.push('请先选择转单规则配置模板（.xlsx）');
+
+        if (errors.length) {
+            showBillRuleNotice(errors);
+            toast(errors[0], 'warning');
+            return;
+        }
+
+        // 必填项校验：表头带 * 的列必须有值（按行序报告）
+        billRuleSheet.rows.forEach(row => {
+            billRuleSheet.required.forEach(item => {
+                const value = row.values[item.key];
+                if (value === null || value === undefined || String(value).trim() === '') {
+                    errors.push('第 ' + row.rowNumber + ' 行：' + item.label + ' 为必填项，不能为空');
+                }
+            });
+        });
+
+        if (errors.length) {
+            showBillRuleNotice(errors.slice(0, 20));
+            toast('共 ' + errors.length + ' 处问题，请修正后再生成', 'error');
+            return;
+        }
+
+        showBillRuleNotice([]);
+
+        busy(button, true);
+        try {
+            const statements = buildBillRuleSql(billRuleSheet.rows, {
+                startId: BigInt(startText),
+                makebillId: makebillText
+            });
+            setPaneText('billRuleOutput', statements.join('\n\n'), {
+                placeholder: '生成的 SQL 将在这里显示…'
+            });
+            $('#billRuleStats').textContent = '已生成: ' + statements.length + ' 条SQL';
+            toast('成功生成 ' + statements.length + ' 条 SQL 语句', 'success');
+        } catch (error) {
+            console.error('转单规则 SQL 生成错误:', error);
+            showBillRuleNotice([error.message || '生成失败']);
+            toast('生成失败，请重试', 'error');
+        } finally {
+            busy(button, false);
+        }
+    }
+
+    function clearBillRule() {
+        $('#billRuleStartId').value = '';
+        $('#billRuleMakebillId').value = '';
+        $('#billRuleFileInput').value = '';
+        $('#billRuleFileList').innerHTML = '';
+        $('#billRuleFileChip').textContent = '未选择文件';
+        $('#billRuleStats').textContent = '已读取: 0 行';
+        setPaneText('billRuleOutput', '', { placeholder: '生成的 SQL 将在这里显示…' });
+        billRuleSheet = null;
+        showBillRuleNotice([]);
+        toast('所有输入已清空', 'info');
+    }
+
+    /* ---------------------------------------------------------
+     * 13. 事件绑定
      * ------------------------------------------------------- */
 
     const ACTIONS = {
@@ -1345,7 +1890,13 @@
         'groovy.clear': clearGroovy,
         'groovy.copy': () => copyText(paneText('groovyOutput')),
         'groovy.download': () => downloadFile('extracted_sql.txt', paneText('groovyOutput')),
-        'groovy.pickFile': () => $('#groovyFileInput').click()
+        'groovy.pickFile': () => $('#groovyFileInput').click(),
+
+        'billrule.run': runBillRule,
+        'billrule.clear': clearBillRule,
+        'billrule.copy': () => copyText(paneText('billRuleOutput')),
+        'billrule.download': () => downloadFile('bill_rule_detail.sql', paneText('billRuleOutput'), 'application/sql;charset=utf-8'),
+        'billrule.pickFile': () => $('#billRuleFileInput').click()
     };
 
     function bindEvents() {
@@ -1427,7 +1978,7 @@
                 }
             }
             if (typing) return;
-            if (e.ctrlKey && e.shiftKey && /^[1-6]$/.test(e.key)) {
+            if (e.ctrlKey && e.shiftKey && /^[1-7]$/.test(e.key)) {
                 e.preventDefault();
                 navigate(TOOL_ROUTES[Number(e.key) - 1]);
             }
@@ -1439,7 +1990,8 @@
             const route = currentRoute();
             const map = {
                 format: 'format.run', compare: 'compare.run', assert: 'assert.run',
-                uid: 'uid.run', idreplace: 'idreplace.run', groovy: 'groovy.run'
+                uid: 'uid.run', idreplace: 'idreplace.run', groovy: 'groovy.run',
+                billrule: 'billrule.run'
             };
             const action = map[route];
             if (!action) return;
@@ -1499,6 +2051,8 @@
 
         setupDropzone('uidDropzone', 'uidFileInput', 'uidFileList', 'uidInput');
         setupDropzone('groovyDropzone', 'groovyFileInput', 'groovyFileList', 'groovyInput');
+        setupBillRuleDropzone();
+        setupTemplateDownloads();
 
         applyRoute(currentRoute());
     }

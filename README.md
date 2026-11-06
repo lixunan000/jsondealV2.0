@@ -1,6 +1,6 @@
 # JsonDeal · 开发者效率工具箱
 
-一个**纯前端**的常用小工具集合：JSON 格式化、JSON 对比、断言代码生成、UID 提取、批量 ID 替换、Groovy SQL 提取。
+一个常用小工具集合：JSON 格式化、JSON 对比、断言代码生成、UID 提取、批量 ID 替换、Groovy SQL 提取、转单规则 SQL 生成。
 
 - 无构建、无依赖、无后端 —— 双击 `index.html` 即可运行
 - 所有处理在浏览器本地完成，数据不会离开你的机器
@@ -22,7 +22,8 @@ jsondeal-main2/
 ├─ assets/
 │  ├─ app.js           # 全部逻辑（IIFE，无全局污染）
 │  ├─ styles.css       # 设计令牌 + 组件样式 + 响应式
-│  └─ favicon.svg      # 站点图标
+│  ├─ favicon.svg      # 站点图标
+│  └─ bill-rule-template.xlsx   # 转单规则配置模板（页面可下载）
 └─ README.md
 ```
 
@@ -39,6 +40,7 @@ jsondeal-main2/
 | UID 提取 | `#/uid` | 提取以 `UID:` 开头的唯一标识符，自动去重排序 |
 | 批量 ID 替换 | `#/idreplace` | 把 SQL 中的数字 ID 替换为连续的雪花 ID（起始值可指定） |
 | Groovy 提取 SQL | `#/groovy` | 从 Groovy 代码中提取 Update / Delete 语句 |
+| 转单规则 SQL | `#/billrule` | 读取转单规则配置 Excel，逐行生成可直接执行的 INSERT 语句 |
 
 ### JSON 格式化
 粘贴 JSON 后点击「格式化」即可。输出区带 JSON 语法着色（键名 / 字符串 / 数字 / 布尔 / null 各自配色），可直接复制或下载。JSON 不合法时会在提示条中给出错误信息。
@@ -80,6 +82,32 @@ InspectOrderRes.java@line[1739]@resId[UID:P_QMSQIT-BE_2487BBFA04880035]=@exit[�
 ### Groovy 提取 SQL
 从 Groovy 源码中提取 `UPDATE` / `DELETE` 语句，支持三引号、多行与单行写法。
 
+### 转单规则 SQL
+上传转单规则配置 Excel（`.xlsx`），工具会读取表头与数据行，为**每一行**生成一条可直接执行的 `INSERT` 语句：
+
+```sql
+INSERT INTO iuap_apcom_businesssflow.domain_make_bill_rule_detail
+(id, makebill_id, ..., target_fileld_resid)
+VALUES('2664164640452771946', '2664164073513418780', 'define20', ..., NULL);
+```
+
+生成规则：
+
+| 项 | 规则 |
+| --- | --- |
+| `id` | 界面上填写「起始雪花 ID」，逐行自增（起始值、起始值 + 1、第 N 行 = 起始值 + N - 1），用 `BigInt` 计算不丢精度 |
+| `makebill_id` | 界面上填写一次，所有行共用 |
+| 首行带红色 `*` 的列 | **必填**，为空时生成前逐行提示「第 N 行：xxx 为必填项，不能为空」，不会产出半成品 SQL |
+| 其他非必填列 | 为空时写入 `NULL` |
+| `is_business_object`（J 列） | 默认 `0`，用户填写则用用户的值 |
+| `micro_service_code`（K 列） | 默认 `yonbip-mm-qms`，用户填写则用用户的值 |
+| `pubts` | 生成时刻的 `yyyy-MM-dd HH:mm:ss` |
+| 「target 字段中文」列 | 仅供人阅读，**不写入** SQL |
+
+- Excel 在浏览器内解析（不依赖任何第三方库），支持拖拽或点击选择文件
+- 页面右上角「下载模板」可获取官方模板 `转单规则配置模板.xlsx`（位于 `assets/bill-rule-template.xlsx`），下载后直接填写再上传即可
+- 生成的 SQL 可复制或下载为 `.sql` 文件，逐条独立执行
+
 ---
 
 ## 快捷键
@@ -87,15 +115,15 @@ InspectOrderRes.java@line[1739]@resId[UID:P_QMSQIT-BE_2487BBFA04880035]=@exit[�
 | 快捷键 | 作用 |
 | --- | --- |
 | `Ctrl` + `K` | 打开命令面板（输入关键字搜索工具，回车跳转） |
-| `Ctrl` + `Shift` + `1` ~ `6` | 快速切换到第 1~6 个工具 |
-| `Ctrl` + `Enter` | 执行当前页面的主操作（格式化 / 对比 / 断言 / 提取 / 替换） |
+| `Ctrl` + `Shift` + `1` ~ `7` | 快速切换到第 1~7 个工具 |
+| `Ctrl` + `Enter` | 执行当前页面的主操作（格式化 / 对比 / 断言 / 提取 / 替换 / 生成 SQL） |
 | `Esc` | 关闭命令面板 |
 
 ---
 
 ## 界面说明
 
-- **侧边栏**：工具导航 + `⇧1`~`⇧6` 快捷键角标；窄屏下自动收起为顶栏菜单按钮
+- **侧边栏**：工具导航 + `⇧1`~`⇧7` 快捷键角标；窄屏下自动收起为顶栏菜单按钮
 - **顶栏**：当前工具标题与说明、换行开关、命令面板入口、主题切换
 - **工作区**：左侧输入、右侧输出，两侧独立滚动；输入区带行号栏
 - **结果区始终自动换行**：长 SQL / 长 JSON 不用横向滚动即可读完；行号会按折行后的实际行数自动对齐
@@ -114,6 +142,7 @@ InspectOrderRes.java@line[1739]@resId[UID:P_QMSQIT-BE_2487BBFA04880035]=@exit[�
 - 行号栏绝对定位，不参与容器高度计算 —— 左侧内容再多也不会把右侧面板和下方按钮撑出屏幕
 - 对比高亮采用「透明 textarea 覆盖层 + 同步滚动」方案，保留原生编辑体验
 - 雪花 ID 使用 `BigInt` 计算，避免大整数精度丢失
+- Excel 解析为自研实现：读取 ZIP 中央目录 → `DecompressionStream('deflate-raw')` 解压 → `DOMParser` 解析 `workbook.xml` / `sharedStrings.xml` / `sheet1.xml`，不引入任何第三方库
 
 ---
 

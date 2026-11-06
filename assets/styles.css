@@ -390,6 +390,9 @@ kbd {
 .btn--ghost:hover { border-color: var(--border-strong); color: var(--text); }
 
 .mini-btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
     height: 27px;
     padding: 0 10px;
     border-radius: 7px;
@@ -747,8 +750,7 @@ kbd {
 .field input:focus { border-color: var(--primary); box-shadow: 0 0 0 3px var(--primary-soft); }
 .field input::placeholder { color: var(--muted); }
 
-.filter-bar__status { display: flex; align-items: center; gap: 8px; margin-left: auto; }
-.filter-bar__hint { font-size: 12px; color: var(--muted); }
+.filter-bar__status { display: flex; align-items: center; gap: 8px; margin-left: auto; }.filter-bar__hint { font-size: 12px; color: var(--muted); }
 .filter-bar__hint code {
     font-family: var(--font-mono);
     background: var(--surface-3);
@@ -756,6 +758,21 @@ kbd {
     border-radius: 5px;
     color: var(--text-soft);
 }
+
+/* 提示条（校验信息） */
+.notice {
+    display: none;
+    margin-bottom: 14px;
+    padding: 11px 14px;
+    border-radius: var(--radius-sm);
+    background: var(--danger-soft);
+    border: 1px solid var(--danger);
+    color: var(--danger);
+    font-size: 12.5px;
+    line-height: 1.7;
+    white-space: pre-wrap;
+}
+.notice.is-show { display: block; }
 
 /* =========================================================
    对比结果
