@@ -99,7 +99,7 @@ VALUES('2664164640452771946', '2664164073513418780', 'define20', ..., NULL);
 | `makebill_id` | 界面上填写一次，所有行共用 |
 | 首行带红色 `*` 的列 | **必填**，为空时生成前逐行提示「第 N 行：xxx 为必填项，不能为空」，不会产出半成品 SQL |
 | 其他非必填列 | 为空时写入 `NULL` |
-| `is_business_object`（J 列） | 默认 `0`，用户填写则用用户的值 |
+| `is_business_object`（J 列） | 默认 `0`，用户填写则用用户的值；**填 `6` 时**，`target_field_type` 与 `origin_field_type` 自动写入字符串 `Characteristics` |
 | `micro_service_code`（K 列） | 默认 `yonbip-mm-qms`，用户填写则用用户的值 |
 | `pubts` | 生成时刻的 `yyyy-MM-dd HH:mm:ss` |
 | 「target 字段中文」列 | 仅供人阅读，**不写入** SQL |

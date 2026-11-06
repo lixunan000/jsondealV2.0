@@ -1630,6 +1630,10 @@
         micro_service_code: 'yonbip-mm-qms'
     };
 
+    /** is_business_object 填此值时，字段类型列写入 Characteristics */
+    const BILL_RULE_BUSINESS_FLAG = '6';
+    const BILL_RULE_CHARACTERISTICS = 'Characteristics';
+
     /**
      * 明细表字段顺序与取值来源
      * row     —— 当前行主键（起始雪花 ID + 行序号）
@@ -1676,8 +1680,8 @@
         ['target_field_name', 'const', null],
         ['origin_field_display', 'const', null],
         ['origin_field_name', 'const', null],
-        ['target_field_type', 'const', null],
-        ['origin_field_type', 'const', null],
+        ['target_field_type', 'biztype'],
+        ['origin_field_type', 'biztype'],
         ['seq', 'const', null],
         ['target_path', 'const', null],
         ['target_parent_path', 'const', null],
@@ -1724,12 +1728,23 @@
             .toLowerCase();
     }
 
+    /** 取单元格的有效值：空值时回落到默认配置 */
+    function billRuleCellValue(row, column) {
+        const raw = row.values[column];
+        const text = (raw === null || raw === undefined) ? '' : String(raw).trim();
+        if (text !== '') return text;
+        const fallback = BILL_RULE_DEFAULTS[column];
+        return fallback === undefined ? '' : fallback;
+    }
+
     function buildBillRuleSql(dataRows, context) {
         const columnList = BILL_RULE_COLUMNS.map(item => item[0]).join(', ');
         const now = formatNow();
         const statements = [];
 
         dataRows.forEach((row, index) => {
+            const isCharacteristics = billRuleCellValue(row, 'is_business_object') === BILL_RULE_BUSINESS_FLAG;
+
             const values = BILL_RULE_COLUMNS.map(item => {
                 const column = item[0];
                 const kind = item[1];
@@ -1749,15 +1764,16 @@
                         ? 'NULL'
                         : sqlLiteral(constant, typeof constant === 'number');
                 }
+                if (kind === 'biztype') {
+                    // is_business_object 填 6 时，字段类型固定为 Characteristics
+                    return isCharacteristics
+                        ? sqlLiteral(BILL_RULE_CHARACTERISTICS, false)
+                        : 'NULL';
+                }
 
                 // excel
-                const raw = row.values[column];
-                const text = (raw === null || raw === undefined) ? '' : String(raw).trim();
-                if (text === '') {
-                    const fallback = BILL_RULE_DEFAULTS[column];
-                    if (fallback !== undefined) return sqlLiteral(fallback, BILL_RULE_NUMERIC_COLUMNS.indexOf(column) > -1);
-                    return 'NULL';
-                }
+                const text = billRuleCellValue(row, column);
+                if (text === '') return 'NULL';
                 return sqlLiteral(text, BILL_RULE_NUMERIC_COLUMNS.indexOf(column) > -1);
             });
 
