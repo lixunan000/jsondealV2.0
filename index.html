@@ -1,0 +1,517 @@
+<!DOCTYPE html>
+<html lang="zh-CN" data-theme="light">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="description" content="JsonDeal - 开发者效率工具箱：JSON 格式化、JSON 对比、断言生成、UID 提取、雪花 ID 批量替换、Groovy SQL 提取。">
+<title>JsonDeal · 开发者效率工具箱</title>
+<link rel="icon" type="image/svg+xml" href="assets/favicon.svg">
+<link rel="stylesheet" href="assets/styles.css">
+</head>
+<body>
+
+<div class="app">
+
+    <!-- ============ 侧边栏 ============ -->
+    <aside class="sidebar" id="sidebar">
+        <a class="brand" href="#/home">
+            <span class="brand__mark">{ }</span>
+            <span class="brand__text">
+                <strong>JsonDeal</strong>
+                <small>开发者效率工具箱</small>
+            </span>
+        </a>
+
+        <nav class="nav" aria-label="工具导航">
+            <p class="nav__label">工作台</p>
+            <a class="nav__item" href="#/home" data-route="home">
+                <span class="nav__icon">◎</span>
+                <span class="nav__text">总览</span>
+            </a>
+
+            <p class="nav__label">工具</p>
+            <a class="nav__item" href="#/format" data-route="format">
+                <span class="nav__icon">{ }</span>
+                <span class="nav__text">JSON 格式化</span>
+                <span class="nav__kbd" title="Ctrl + Shift + 1">⇧1</span>
+            </a>
+            <a class="nav__item" href="#/compare" data-route="compare">
+                <span class="nav__icon">⇄</span>
+                <span class="nav__text">JSON 对比</span>
+                <span class="nav__kbd" title="Ctrl + Shift + 2">⇧2</span>
+            </a>
+            <a class="nav__item" href="#/assert" data-route="assert">
+                <span class="nav__icon">✓</span>
+                <span class="nav__text">JSON 断言生成</span>
+                <span class="nav__kbd" title="Ctrl + Shift + 3">⇧3</span>
+            </a>
+            <a class="nav__item" href="#/uid" data-route="uid">
+                <span class="nav__icon">#</span>
+                <span class="nav__text">UID 提取</span>
+                <span class="nav__kbd" title="Ctrl + Shift + 4">⇧4</span>
+            </a>
+            <a class="nav__item" href="#/idreplace" data-route="idreplace">
+                <span class="nav__icon">⇥</span>
+                <span class="nav__text">批量 ID 替换</span>
+                <span class="nav__kbd" title="Ctrl + Shift + 5">⇧5</span>
+            </a>
+            <a class="nav__item" href="#/groovy" data-route="groovy">
+                <span class="nav__icon">⌘</span>
+                <span class="nav__text">Groovy 提取 SQL</span>
+                <span class="nav__kbd" title="Ctrl + Shift + 6">⇧6</span>
+            </a>
+        </nav>
+
+        <div class="sidebar__foot">
+            <button class="side-toggle" id="themeToggle" type="button">
+                <span class="side-toggle__icon" id="themeIcon">◐</span>
+                <span id="themeLabel">切换深色模式</span>
+            </button>
+        </div>
+    </aside>
+
+    <div class="sidebar__scrim" id="sidebarScrim"></div>
+
+    <!-- ============ 主区域 ============ -->
+    <div class="main">
+        <header class="topbar">
+            <button class="icon-btn topbar__menu" id="menuBtn" type="button" aria-label="打开导航">☰</button>
+            <div class="topbar__heading">
+                <h1 id="pageTitle">总览</h1>
+                <p id="pageDesc">六个常用的小工具，覆盖调试、接口联调与数据准备场景。</p>
+            </div>
+            <div class="topbar__actions">
+                <button class="ghost-btn" id="wrapToggle" type="button" title="切换输入区自动换行（结果区始终自动换行）">
+                    <span id="wrapIcon">⏎</span><span class="ghost-btn__text">自动换行</span>
+                </button>
+                <button class="ghost-btn" id="paletteBtn" type="button">
+                    <span>⌕</span><span class="ghost-btn__text">搜索</span><kbd>Ctrl K</kbd>
+                </button>
+                <button class="icon-btn" id="themeToggleTop" type="button" aria-label="切换主题">◐</button>
+            </div>
+        </header>
+
+        <main class="content" id="content">
+
+            <!-- ================= 总览 ================= -->
+            <section class="view" id="view-home">
+                <div class="hero">
+                    <div class="hero__text">
+                        <h2>把重复的手工活交给 JsonDeal</h2>
+                        <p>JSON 格式化与对比、接口断言代码生成、UID 提取、雪花 ID 批量替换、Groovy SQL 提取——
+                            粘贴即用，结果可复制、可下载。</p>
+                        <div class="hero__actions">
+                            <a class="btn btn--primary" href="#/format">开始使用</a>
+                            <button class="btn btn--ghost" data-action="palette.open">查看全部工具</button>
+                        </div>
+                    </div>
+                    <div class="hero__panel">
+                        <div class="hero__panel-head">
+                            <span class="hero__dot"></span>
+                            <span>实时预览</span>
+                        </div>
+                        <pre class="hero__code"><code id="heroCode"></code></pre>
+                    </div>
+                </div>
+
+                <div class="stat-row">
+                    <div class="stat"><strong>6</strong><span>可用工具</span></div>
+                    <div class="stat"><strong>4</strong><span>空格缩进</span></div>
+                    <div class="stat"><strong>10+</strong><span>支持文件格式</span></div>
+                    <div class="stat"><strong>9</strong><span>键盘快捷键</span></div>
+                </div>
+
+                <div class="section-head">
+                    <h3>全部工具</h3>
+                    <p>点击卡片进入对应工作区</p>
+                </div>
+
+                <div class="tool-grid">
+                    <a class="tool-card" href="#/format">
+                        <span class="tool-card__icon">{ }</span>
+                        <h4>JSON 格式化</h4>
+                        <p>解析并美化 JSON，输出 4 空格缩进的规范结构，格式非法时给出明确提示。</p>
+                        <span class="tool-card__link">打开工具 →</span>
+                    </a>
+                    <a class="tool-card" href="#/compare">
+                        <span class="tool-card__icon">⇄</span>
+                        <h4>JSON 对比</h4>
+                        <p>深度比较两个 JSON，按新增 / 删除 / 修改分类，差异行直接高亮在文本上。</p>
+                        <span class="tool-card__link">打开工具 →</span>
+                    </a>
+                    <a class="tool-card" href="#/assert">
+                        <span class="tool-card__icon">✓</span>
+                        <h4>JSON 断言生成</h4>
+                        <p>根据接口响应 JSON 自动生成 assert 断言代码，支持仅保留 / 仅删除字段过滤。</p>
+                        <span class="tool-card__link">打开工具 →</span>
+                    </a>
+                    <a class="tool-card" href="#/uid">
+                        <span class="tool-card__icon">#</span>
+                        <h4>UID 提取</h4>
+                        <p>从日志或文件中提取以 UID: 开头的唯一标识符，自动去重排序，支持批量文件。</p>
+                        <span class="tool-card__link">打开工具 →</span>
+                    </a>
+                    <a class="tool-card" href="#/idreplace">
+                        <span class="tool-card__icon">⇥</span>
+                        <h4>批量 ID 替换</h4>
+                        <p>将 SQL 中的数字 ID 替换为连续的雪花 ID，从指定起始值依次递增。</p>
+                        <span class="tool-card__link">打开工具 →</span>
+                    </a>
+                    <a class="tool-card" href="#/groovy">
+                        <span class="tool-card__icon">⌘</span>
+                        <h4>Groovy 提取 SQL</h4>
+                        <p>从 Groovy 代码中提取纯 SQL 语句（Update / Delete），支持代码文件直接拖入。</p>
+                        <span class="tool-card__link">打开工具 →</span>
+                    </a>
+                </div>
+            </section>
+
+            <!-- ================= JSON 格式化 ================= -->
+            <section class="view" id="view-format" hidden>
+                <div class="view__head">
+                    <div class="view__intro">
+                        <h2>JSON 格式化</h2>
+                        <p>校验并美化 JSON 字符串，输出 4 空格缩进的规范格式。</p>
+                    </div>
+                    <div class="view__actions">
+                        <button class="btn btn--primary" data-action="format.run">格式化</button>
+                        <button class="btn btn--ghost" data-action="format.clear">清空</button>
+                    </div>
+                </div>
+
+                <div class="workspace">
+                    <article class="panel">
+                        <header class="panel__head">
+                            <h3>输入</h3>
+                            <span class="chip" data-stat="format.input">0 行</span>
+                        </header>
+                        <div class="editor" data-editor="formatInput">
+                            <div class="editor__gutter" data-gutter="formatInput"></div>
+                            <textarea id="formatInput" class="editor__area" spellcheck="false"
+                                      placeholder="在此粘贴 JSON 字符串，Ctrl + Enter 直接格式化"></textarea>
+                        </div>
+                    </article>
+
+                    <article class="panel">
+                        <header class="panel__head">
+                            <h3>输出</h3>
+                            <div class="panel__tools">
+                                <button class="mini-btn" data-action="format.copy">复制</button>
+                                <button class="mini-btn" data-action="format.download">下载</button>
+                            </div>
+                        </header>
+                        <div class="editor editor--code" data-editor="formatOutput">
+                            <div class="editor__gutter" data-gutter="formatOutput"></div>
+                            <pre class="editor__code" id="formatOutput"><span class="editor__placeholder">格式化结果将在这里显示…</span></pre>
+                        </div>
+                    </article>
+                </div>
+            </section>
+
+            <!-- ================= JSON 对比 ================= -->
+            <section class="view" id="view-compare" hidden>
+                <div class="view__head">
+                    <div class="view__intro">
+                        <h2>JSON 对比</h2>
+                        <p>深度比较两个 JSON 的结构与取值，差异行会直接高亮在对应文本上。</p>
+                    </div>
+                    <div class="view__actions">
+                        <button class="btn btn--primary" data-action="compare.run">对比</button>
+                        <button class="btn btn--ghost" data-action="compare.clearHighlight">清除高亮</button>
+                        <button class="btn btn--ghost" data-action="compare.clearAll">清空所有</button>
+                    </div>
+                </div>
+
+                <div class="workspace">
+                    <article class="panel">
+                        <header class="panel__head">
+                            <h3>JSON 1</h3>
+                            <div class="panel__tools">
+                                <button class="mini-btn" data-action="compare.example1">加载示例</button>
+                                <span class="chip chip--danger" data-stat="compare.removed">删除 0</span>
+                                <span class="chip chip--warn" data-stat="compare.changed">修改 0</span>
+                            </div>
+                        </header>
+                        <div class="editor" data-editor="compareInput1">
+                            <div class="editor__gutter" data-gutter="compareInput1"></div>
+                            <div class="editor__overlay" data-overlay="compareInput1"></div>
+                            <textarea id="compareInput1" class="editor__area" spellcheck="false"
+                                      placeholder="粘贴第一个 JSON…"></textarea>
+                        </div>
+                    </article>
+
+                    <article class="panel">
+                        <header class="panel__head">
+                            <h3>JSON 2</h3>
+                            <div class="panel__tools">
+                                <button class="mini-btn" data-action="compare.example2">加载示例</button>
+                                <span class="chip chip--success" data-stat="compare.added">新增 0</span>
+                                <span class="chip chip--warn" data-stat="compare.changed2">修改 0</span>
+                            </div>
+                        </header>
+                        <div class="editor" data-editor="compareInput2">
+                            <div class="editor__gutter" data-gutter="compareInput2"></div>
+                            <div class="editor__overlay" data-overlay="compareInput2"></div>
+                            <textarea id="compareInput2" class="editor__area" spellcheck="false"
+                                      placeholder="粘贴第二个 JSON…"></textarea>
+                        </div>
+                    </article>
+                </div>
+
+                <article class="panel panel--result">
+                    <header class="panel__head">
+                        <h3>对比结果详情</h3>
+                        <span class="chip chip--accent" data-stat="compare.total">总差异 0</span>
+                    </header>
+                    <div class="result-body" id="compareResult">
+                        <div class="empty">
+                            <span class="empty__icon">⇄</span>
+                            <p>点击「对比」开始分析两个 JSON 的差异</p>
+                        </div>
+                    </div>
+                </article>
+            </section>
+
+            <!-- ================= JSON 断言生成 ================= -->
+            <section class="view" id="view-assert" hidden>
+                <div class="view__head">
+                    <div class="view__intro">
+                        <h2>JSON 断言生成</h2>
+                        <p>根据接口响应 JSON 生成 assert 断言代码，支持仅保留 / 仅删除字段过滤。</p>
+                    </div>
+                    <div class="view__actions">
+                        <button class="btn btn--primary" data-action="assert.run">生成断言</button>
+                        <button class="btn btn--ghost" data-action="assert.format">格式化 JSON</button>
+                        <button class="btn btn--ghost" data-action="assert.clear">清空</button>
+                    </div>
+                </div>
+
+                <div class="filter-bar">
+                    <label class="field">
+                        <span class="field__label">仅保留</span>
+                        <input type="text" id="assertInclude" placeholder="要保留的 key，英文逗号分隔，如：name,code">
+                    </label>
+                    <label class="field">
+                        <span class="field__label">仅删除</span>
+                        <input type="text" id="assertExclude" placeholder="要删除的 key，英文逗号分隔，如：ts,tenant">
+                    </label>
+                    <div class="filter-bar__status">
+                        <span class="chip chip--accent" id="assertStatusText">就绪</span>
+                        <span class="chip" id="assertStatusDetail"></span>
+                    </div>
+                </div>
+
+                <div class="workspace">
+                    <article class="panel">
+                        <header class="panel__head">
+                            <h3>JSON 输入</h3>
+                            <span class="chip" data-stat="assert.input">0 行</span>
+                        </header>
+                        <div class="editor" data-editor="assertInput">
+                            <div class="editor__gutter" data-gutter="assertInput"></div>
+                            <textarea id="assertInput" class="editor__area" spellcheck="false"
+                                      placeholder="在此粘贴接口响应 JSON…"></textarea>
+                        </div>
+                    </article>
+
+                    <article class="panel">
+                        <header class="panel__head">
+                            <h3>断言输出</h3>
+                            <div class="panel__tools">
+                                <button class="mini-btn" data-action="assert.copy">复制</button>
+                            </div>
+                        </header>
+                        <div class="editor editor--code" data-editor="assertOutput">
+                            <div class="editor__gutter" data-gutter="assertOutput"></div>
+                            <pre class="editor__code" id="assertOutput"><span class="editor__placeholder">断言代码将在这里显示…</span></pre>
+                        </div>
+                    </article>
+                </div>
+            </section>
+
+            <!-- ================= UID 提取 ================= -->
+            <section class="view" id="view-uid" hidden>
+                <div class="view__head">
+                    <div class="view__intro">
+                        <h2>UID 提取</h2>
+                        <p>提取文本中以 UID: 开头的唯一标识符，自动去重并排序。</p>
+                    </div>
+                    <div class="view__actions">
+                        <button class="btn btn--primary" data-action="uid.run">提取 UID</button>
+                        <button class="btn btn--ghost" data-action="uid.clear">清空</button>
+                    </div>
+                </div>
+
+                <div class="workspace workspace--wide">
+                    <article class="panel">
+                        <header class="panel__head">
+                            <h3>输入内容</h3>
+                            <span class="chip" data-stat="uid.input">0 行</span>
+                        </header>
+                        <div class="editor" data-editor="uidInput">
+                            <div class="editor__gutter" data-gutter="uidInput"></div>
+                            <textarea id="uidInput" class="editor__area" spellcheck="false"
+                                      placeholder="手动输入文本，或将日志文件拖拽到下方上传区…"></textarea>
+                        </div>
+
+                        <div class="dropzone" id="uidDropzone">
+                            <input type="file" id="uidFileInput" hidden multiple accept=".txt,.json,.log,.csv,.groovy,.sql">
+                            <span class="dropzone__icon">⬆</span>
+                            <p>拖拽文件到此处，或 <button class="link-btn" data-action="uid.pickFile">选择文件</button></p>
+                            <small>支持 .txt / .json / .log / .csv / .groovy / .sql</small>
+                        </div>
+                        <ul class="filelist" id="uidFileList"></ul>
+                    </article>
+
+                    <article class="panel">
+                        <header class="panel__head">
+                            <h3>提取结果</h3>
+                            <div class="panel__tools">
+                                <button class="mini-btn" data-action="uid.copy">复制</button>
+                                <button class="mini-btn" data-action="uid.download">下载</button>
+                            </div>
+                        </header>
+                        <div class="editor editor--code" data-editor="uidOutput">
+                            <div class="editor__gutter" data-gutter="uidOutput"></div>
+                            <pre class="editor__code" id="uidOutput"><span class="editor__placeholder">提取到的 UID 将在这里显示…</span></pre>
+                        </div>
+                        <div class="panel__foot">
+                            <span class="chip chip--accent" id="uidStats">已提取: 0 个UID</span>
+                        </div>
+                    </article>
+                </div>
+            </section>
+
+            <!-- ================= 批量 ID 替换 ================= -->
+            <section class="view" id="view-idreplace" hidden>
+                <div class="view__head">
+                    <div class="view__intro">
+                        <h2>批量 ID 替换</h2>
+                        <p>把 SQL 中的数字 ID 替换为连续的雪花 ID，避免写入数据库时主键冲突。</p>
+                    </div>
+                    <div class="view__actions">
+                        <button class="btn btn--primary" data-action="idreplace.run">替换 ID</button>
+                        <button class="btn btn--ghost" data-action="idreplace.clear">清空</button>
+                    </div>
+                </div>
+
+                <div class="filter-bar">
+                    <label class="field">
+                        <span class="field__label">起始雪花 ID</span>
+                        <input type="text" id="startSnowflakeId" inputmode="numeric"
+                               placeholder="例如：1443166316329340928">
+                    </label>
+                    <p class="filter-bar__hint">
+                        形如 <code>('数字ID', ...)</code> 的参数会被依次替换为起始值 + 1、+ 2 …
+                    </p>
+                </div>
+
+                <div class="workspace">
+                    <article class="panel">
+                        <header class="panel__head">
+                            <h3>SQL 输入</h3>
+                            <span class="chip" data-stat="idreplace.input">0 行</span>
+                        </header>
+                        <div class="editor" data-editor="idReplaceInput">
+                            <div class="editor__gutter" data-gutter="idReplaceInput"></div>
+                            <textarea id="idReplaceInput" class="editor__area" spellcheck="false"
+                                      placeholder="在此粘贴包含数字 ID 的 SQL 语句…"></textarea>
+                        </div>
+                    </article>
+
+                    <article class="panel">
+                        <header class="panel__head">
+                            <h3>替换结果</h3>
+                            <div class="panel__tools">
+                                <button class="mini-btn" data-action="idreplace.copy">复制</button>
+                                <button class="mini-btn" data-action="idreplace.download">下载 SQL</button>
+                            </div>
+                        </header>
+                        <div class="editor editor--code" data-editor="idReplaceOutput">
+                            <div class="editor__gutter" data-gutter="idReplaceOutput"></div>
+                            <pre class="editor__code" id="idReplaceOutput"><span class="editor__placeholder">替换后的 SQL 将在这里显示…</span></pre>
+                        </div>
+                    </article>
+                </div>
+            </section>
+
+            <!-- ================= Groovy 提取 SQL ================= -->
+            <section class="view" id="view-groovy" hidden>
+                <div class="view__head">
+                    <div class="view__intro">
+                        <h2>Groovy 提取 SQL</h2>
+                        <p>从 Groovy 代码或脚本中提取纯 SQL 语句（仅支持 Update 与 Delete）。</p>
+                    </div>
+                    <div class="view__actions">
+                        <button class="btn btn--primary" data-action="groovy.run">提取 SQL</button>
+                        <button class="btn btn--ghost" data-action="groovy.clear">清空</button>
+                    </div>
+                </div>
+
+                <div class="workspace workspace--wide">
+                    <article class="panel">
+                        <header class="panel__head">
+                            <h3>输入内容</h3>
+                            <span class="chip" data-stat="groovy.input">0 行</span>
+                        </header>
+                        <div class="editor" data-editor="groovyInput">
+                            <div class="editor__gutter" data-gutter="groovyInput"></div>
+                            <textarea id="groovyInput" class="editor__area" spellcheck="false"
+                                      placeholder="手动输入 Groovy 代码，或将代码文件拖拽到下方上传区…"></textarea>
+                        </div>
+
+                        <div class="dropzone" id="groovyDropzone">
+                            <input type="file" id="groovyFileInput" hidden multiple accept=".txt,.json,.log,.csv,.groovy,.sql">
+                            <span class="dropzone__icon">⬆</span>
+                            <p>拖拽文件到此处，或 <button class="link-btn" data-action="groovy.pickFile">选择文件</button></p>
+                            <small>支持 .txt / .json / .log / .csv / .groovy / .sql</small>
+                        </div>
+                        <ul class="filelist" id="groovyFileList"></ul>
+                    </article>
+
+                    <article class="panel">
+                        <header class="panel__head">
+                            <h3>提取结果</h3>
+                            <div class="panel__tools">
+                                <button class="mini-btn" data-action="groovy.copy">复制</button>
+                                <button class="mini-btn" data-action="groovy.download">下载 SQL</button>
+                            </div>
+                        </header>
+                        <div class="editor editor--code" data-editor="groovyOutput">
+                            <div class="editor__gutter" data-gutter="groovyOutput"></div>
+                            <pre class="editor__code" id="groovyOutput"><span class="editor__placeholder">提取到的 SQL 将在这里显示…</span></pre>
+                        </div>
+                        <div class="panel__foot">
+                            <span class="chip chip--accent" id="groovyStats">已提取: 0 条SQL</span>
+                        </div>
+                    </article>
+                </div>
+            </section>
+
+        </main>
+
+        <footer class="footer">
+            <span>JsonDeal · 开发者效率工具箱</span>
+        </footer>
+    </div>
+</div>
+
+<!-- ============ 提示条 ============ -->
+<div class="toasts" id="toasts" aria-live="polite"></div>
+
+<!-- ============ 命令面板 ============ -->
+<div class="palette" id="palette" hidden>
+    <div class="palette__backdrop" data-action="palette.close"></div>
+    <div class="palette__box" role="dialog" aria-label="工具搜索">
+        <div class="palette__search">
+            <span>⌕</span>
+            <input type="text" id="paletteInput" placeholder="搜索工具，例如：格式化 / 断言 / UID…" autocomplete="off">
+            <kbd>Esc</kbd>
+        </div>
+        <ul class="palette__list" id="paletteList"></ul>
+    </div>
+</div>
+
+<script src="assets/app.js"></script>
+</body>
+</html>
