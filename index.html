@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<meta name="description" content="JsonDeal - 开发者效率工具箱：JSON 格式化、JSON 对比、断言生成、UID 提取、雪花 ID 批量替换、Groovy SQL 提取。">
+<meta name="description" content="JsonDeal - 开发者效率工具箱：JSON 格式化、JSON 对比、断言生成、UID 提取、雪花 ID 批量替换、Groovy SQL 提取、转单规则 SQL 生成、MD5 生成。">
 <title>JsonDeal · 开发者效率工具箱</title>
 <link rel="icon" type="image/svg+xml" href="assets/favicon.svg">
 <link rel="stylesheet" href="assets/styles.css">
@@ -65,6 +65,11 @@
                 <span class="nav__text">转单规则 SQL</span>
                 <span class="nav__kbd" title="Ctrl + Shift + 7">⇧7</span>
             </a>
+            <a class="nav__item" href="#/md5" data-route="md5">
+                <span class="nav__icon">✦</span>
+                <span class="nav__text">MD5 生成</span>
+                <span class="nav__kbd" title="Ctrl + Shift + 8">⇧8</span>
+            </a>
         </nav>
 
         <div class="sidebar__foot">
@@ -83,7 +88,7 @@
             <button class="icon-btn topbar__menu" id="menuBtn" type="button" aria-label="打开导航">☰</button>
             <div class="topbar__heading">
                 <h1 id="pageTitle">总览</h1>
-                <p id="pageDesc">七个常用的小工具，覆盖调试、接口联调与数据准备场景。</p>
+                <p id="pageDesc">八个常用的小工具，覆盖调试、接口联调与数据准备场景。</p>
             </div>
             <div class="topbar__actions">
                 <button class="ghost-btn" id="wrapToggle" type="button" title="切换输入区自动换行（结果区始终自动换行）">
@@ -103,7 +108,7 @@
                 <div class="hero">
                     <div class="hero__text">
                         <h2>把重复的手工活交给 JsonDeal</h2>
-                        <p>JSON 格式化与对比、接口断言代码生成、UID 提取、雪花 ID 批量替换、Groovy SQL 提取——
+                        <p>JSON 格式化与对比、接口断言代码生成、UID 提取、雪花 ID 批量替换、Groovy SQL 提取、转单规则 SQL 生成、MD5 摘要——
                             粘贴即用，结果可复制、可下载。</p>
                         <div class="hero__actions">
                             <a class="btn btn--primary" href="#/format">开始使用</a>
@@ -120,10 +125,10 @@
                 </div>
 
                 <div class="stat-row">
-                    <div class="stat"><strong>7</strong><span>可用工具</span></div>
+                    <div class="stat"><strong>8</strong><span>可用工具</span></div>
                     <div class="stat"><strong>4</strong><span>空格缩进</span></div>
                     <div class="stat"><strong>10+</strong><span>支持文件格式</span></div>
-                    <div class="stat"><strong>9</strong><span>键盘快捷键</span></div>
+                    <div class="stat"><strong>10</strong><span>键盘快捷键</span></div>
                 </div>
 
                 <div class="section-head">
@@ -172,6 +177,12 @@
                         <span class="tool-card__icon">▦</span>
                         <h4>转单规则 SQL</h4>
                         <p>读取转单规则配置模板（.xlsx），按行生成可直接执行的明细 INSERT 语句。</p>
+                        <span class="tool-card__link">打开工具 →</span>
+                    </a>
+                    <a class="tool-card" href="#/md5">
+                        <span class="tool-card__icon">✦</span>
+                        <h4>MD5 生成</h4>
+                        <p>粘贴文本内容，生成 32 位 MD5 摘要，可直接复制使用。</p>
                         <span class="tool-card__link">打开工具 →</span>
                     </a>
                 </div>
@@ -585,6 +596,51 @@
                         <div class="editor editor--code" data-editor="billRuleOutput">
                             <div class="editor__gutter" data-gutter="billRuleOutput"></div>
                             <pre class="editor__code" id="billRuleOutput"><span class="editor__placeholder">生成的 SQL 将在这里显示…</span></pre>
+                        </div>
+                    </article>
+                </div>
+            </section>
+
+            <!-- ================= MD5 生成 ================= -->
+            <section class="view" id="view-md5" hidden>
+                <div class="view__head">
+                    <div class="view__intro">
+                        <h2>MD5 生成</h2>
+                        <p>粘贴文本内容，计算 32 位 MD5 摘要。计算前会把 CRLF 统一成 LF，结果为小写十六进制。</p>
+                    </div>
+                    <div class="view__actions">
+                        <button class="btn btn--primary" data-action="md5.run">计算 MD5</button>
+                        <button class="btn btn--ghost" data-action="md5.clear">清空</button>
+                    </div>
+                </div>
+
+                <div class="workspace">
+                    <article class="panel">
+                        <header class="panel__head">
+                            <h3>输入内容</h3>
+                            <span class="chip" data-stat="md5.input">0 行</span>
+                        </header>
+                        <div class="editor" data-editor="md5Input">
+                            <div class="editor__gutter" data-gutter="md5Input"></div>
+                            <textarea id="md5Input" class="editor__area" spellcheck="false"
+                                      placeholder="在此粘贴要计算摘要的文本…"></textarea>
+                        </div>
+                    </article>
+
+                    <article class="panel">
+                        <header class="panel__head">
+                            <h3>MD5 结果</h3>
+                            <div class="panel__tools">
+                                <button class="mini-btn" data-action="md5.copy">复制</button>
+                                <button class="mini-btn" data-action="md5.download">下载</button>
+                            </div>
+                        </header>
+                        <div class="editor editor--code" data-editor="md5Output">
+                            <div class="editor__gutter" data-gutter="md5Output"></div>
+                            <pre class="editor__code" id="md5Output"><span class="editor__placeholder">MD5 摘要将在这里显示…</span></pre>
+                        </div>
+                        <div class="panel__foot">
+                            <span class="chip chip--accent" id="md5Stats">已计算: 0 字节</span>
                         </div>
                     </article>
                 </div>

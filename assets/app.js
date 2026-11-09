@@ -217,17 +217,18 @@
     }
 
     const ROUTES = {
-        home: { title: '总览', desc: '七个常用的小工具，覆盖调试、接口联调与数据准备场景。' },
+        home: { title: '总览', desc: '八个常用的小工具，覆盖调试、接口联调与数据准备场景。' },
         format: { title: 'JSON 格式化', desc: '校验并美化 JSON 字符串，输出 4 空格缩进的规范格式。' },
         compare: { title: 'JSON 对比', desc: '深度比较两个 JSON，差异行直接高亮在文本上。' },
         assert: { title: 'JSON 断言生成', desc: '根据接口响应 JSON 自动生成 assert 断言代码。' },
         uid: { title: 'UID 提取', desc: '提取以 UID: 开头的唯一标识符，自动去重排序。' },
         idreplace: { title: '批量 ID 替换', desc: '将 SQL 中的数字 ID 替换为连续的雪花 ID。' },
         groovy: { title: 'Groovy 提取 SQL', desc: '从 Groovy 代码中提取 Update / Delete 语句。' },
-        billrule: { title: '转单规则 SQL', desc: '读取转单规则配置模板，按行生成可直接执行的明细 INSERT 语句。' }
+        billrule: { title: '转单规则 SQL', desc: '读取转单规则配置模板，按行生成可直接执行的明细 INSERT 语句。' },
+        md5: { title: 'MD5 生成', desc: '对文本内容计算 32 位 MD5 摘要。' }
     };
 
-    const TOOL_ROUTES = ['format', 'compare', 'assert', 'uid', 'idreplace', 'groovy', 'billrule'];
+    const TOOL_ROUTES = ['format', 'compare', 'assert', 'uid', 'idreplace', 'groovy', 'billrule', 'md5'];
 
     function currentRoute() {
         const hash = (location.hash || '').replace(/^#\/?/, '');
@@ -341,7 +342,8 @@
         assertInput: 'assert.input',
         uidInput: 'uid.input',
         idReplaceInput: 'idreplace.input',
-        groovyInput: 'groovy.input'
+        groovyInput: 'groovy.input',
+        md5Input: 'md5.input'
     };
 
     function initPanes() {
@@ -2322,7 +2324,112 @@
     }
 
     /* ---------------------------------------------------------
-     * 15. 事件绑定
+     * 15. 工具八：MD5 生成
+     *
+     * 浏览器没有内置的 MD5（crypto.subtle 只支持 SHA 系列），
+     * 这里按 RFC 1321 自行实现：输入字节数组，输出 32 位小写十六进制。
+     *
+     * 计算前统一换行：CRLF 与单独的 CR 都规范成 LF，
+     * 与 Git 在 core.autocrlf 下入库的内容保持一致。
+     * ------------------------------------------------------- */
+
+    const MD5_SHIFT = [
+        7, 12, 17, 22, 7, 12, 17, 22, 7, 12, 17, 22, 7, 12, 17, 22,
+        5, 9, 14, 20, 5, 9, 14, 20, 5, 9, 14, 20, 5, 9, 14, 20,
+        4, 11, 16, 23, 4, 11, 16, 23, 4, 11, 16, 23, 4, 11, 16, 23,
+        6, 10, 15, 21, 6, 10, 15, 21, 6, 10, 15, 21, 6, 10, 15, 21
+    ];
+
+    const MD5_K = (() => {
+        const k = new Uint32Array(64);
+        for (let i = 0; i < 64; i++) k[i] = Math.floor(Math.abs(Math.sin(i + 1)) * 4294967296);
+        return k;
+    })();
+
+    /** 计算字节数组的 MD5，返回 32 位小写十六进制字符串 */
+    function md5Hex(bytes) {
+        const bitLen = bytes.length * 8;
+        // 追加 0x80 与填充字节，使长度落在 56 (mod 64)，末尾 8 字节写入原始比特长度
+        const padded = (((bytes.length + 8) >>> 6) + 1) << 6;
+        const buf = new Uint8Array(padded);
+        buf.set(bytes);
+        buf[bytes.length] = 0x80;
+        const view = new DataView(buf.buffer);
+        view.setUint32(padded - 8, bitLen >>> 0, true);
+        view.setUint32(padded - 4, Math.floor(bitLen / 4294967296), true);
+
+        let a0 = 0x67452301, b0 = 0xefcdab89, c0 = 0x98badcfe, d0 = 0x10325476;
+
+        for (let off = 0; off < padded; off += 64) {
+            const M = new Uint32Array(16);
+            for (let i = 0; i < 16; i++) M[i] = view.getUint32(off + i * 4, true);
+            let A = a0, B = b0, C = c0, D = d0;
+            for (let i = 0; i < 64; i++) {
+                let F, g;
+                if (i < 16) { F = (B & C) | (~B & D); g = i; }
+                else if (i < 32) { F = (D & B) | (~D & C); g = (5 * i + 1) % 16; }
+                else if (i < 48) { F = B ^ C ^ D; g = (3 * i + 5) % 16; }
+                else { F = C ^ (B | ~D); g = (7 * i) % 16; }
+                F = (F + A + MD5_K[i] + M[g]) >>> 0;
+                A = D; D = C; C = B;
+                B = (B + (((F << MD5_SHIFT[i]) | (F >>> (32 - MD5_SHIFT[i]))) >>> 0)) >>> 0;
+            }
+            a0 = (a0 + A) >>> 0; b0 = (b0 + B) >>> 0; c0 = (c0 + C) >>> 0; d0 = (d0 + D) >>> 0;
+        }
+
+        const out = new Uint8Array(16);
+        const ov = new DataView(out.buffer);
+        ov.setUint32(0, a0, true);
+        ov.setUint32(4, b0, true);
+        ov.setUint32(8, c0, true);
+        ov.setUint32(12, d0, true);
+        let hex = '';
+        for (let i = 0; i < 16; i++) hex += out[i].toString(16).padStart(2, '0');
+        return hex;
+    }
+
+    /** 统一换行：CRLF 与单独的 CR 都规范成 LF */
+    function normalizeLf(text) {
+        return String(text).replace(/\r\n?/g, '\n');
+    }
+
+    function runMd5(button) {
+        updatePane('md5Input');
+        const input = paneText('md5Input');
+        if (!input) {
+            setPaneText('md5Output', '', { placeholder: 'MD5 摘要将在这里显示…' });
+            $('#md5Stats').textContent = '已计算: 0 字节';
+            toast('请输入要计算的内容', 'warning');
+            return;
+        }
+        busy(button, true);
+        setTimeout(() => {
+            try {
+                const normalized = normalizeLf(input);
+                const bytes = new TextEncoder().encode(normalized);
+                const digest = md5Hex(bytes);
+                setPaneText('md5Output', digest, { placeholder: 'MD5 摘要将在这里显示…' });
+                $('#md5Stats').textContent = '已计算: ' + bytes.length + ' 字节';
+                toast('MD5 计算完成', 'success');
+            } catch (error) {
+                console.error('MD5 计算错误:', error);
+                toast('计算失败，请重试', 'error');
+            } finally {
+                busy(button, false);
+            }
+        }, 60);
+    }
+
+    function clearMd5() {
+        $('#md5Input').value = '';
+        setPaneText('md5Output', '', { placeholder: 'MD5 摘要将在这里显示…' });
+        $('#md5Stats').textContent = '已计算: 0 字节';
+        updatePane('md5Input');
+        toast('所有输入已清空', 'info');
+    }
+
+    /* ---------------------------------------------------------
+     * 16. 事件绑定
      * ------------------------------------------------------- */
 
     const ACTIONS = {
@@ -2376,7 +2483,12 @@
         'billrule.clear': clearBillRule,
         'billrule.copy': () => copyText(paneText('billRuleOutput')),
         'billrule.download': () => downloadFile('bill_rule_detail.sql', paneText('billRuleOutput'), 'application/sql;charset=utf-8'),
-        'billrule.pickFile': () => $('#billRuleFileInput').click()
+        'billrule.pickFile': () => $('#billRuleFileInput').click(),
+
+        'md5.run': runMd5,
+        'md5.clear': clearMd5,
+        'md5.copy': () => copyText(paneText('md5Output')),
+        'md5.download': () => downloadFile('md5.txt', paneText('md5Output'))
     };
 
     function bindEvents() {
@@ -2459,7 +2571,7 @@
                 }
             }
             if (typing) return;
-            if (e.ctrlKey && e.shiftKey && /^[1-7]$/.test(e.key)) {
+            if (e.ctrlKey && e.shiftKey && /^[1-8]$/.test(e.key)) {
                 e.preventDefault();
                 navigate(TOOL_ROUTES[Number(e.key) - 1]);
             }
@@ -2472,7 +2584,7 @@
             const map = {
                 format: 'format.run', compare: 'compare.run', assert: 'assert.run',
                 uid: 'uid.run', idreplace: 'idreplace.run', groovy: 'groovy.run',
-                billrule: 'billrule.run'
+                billrule: 'billrule.run', md5: 'md5.run'
             };
             const action = map[route];
             if (!action) return;
@@ -2495,7 +2607,7 @@
     }
 
     /* ---------------------------------------------------------
-     * 16. 首页演示代码
+     * 17. 首页演示代码
      * ------------------------------------------------------- */
 
     const HERO_SAMPLE = {
@@ -2518,7 +2630,7 @@
     }
 
     /* ---------------------------------------------------------
-     * 17. 启动
+     * 18. 启动
      * ------------------------------------------------------- */
 
     function init() {
