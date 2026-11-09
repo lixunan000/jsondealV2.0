@@ -814,6 +814,19 @@ body.is-locked { overflow: hidden; }
 .field input:focus { border-color: var(--primary); box-shadow: 0 0 0 3px var(--primary-soft); }
 .field input::placeholder { color: var(--muted); }
 
+/* 输入框 + 附属按钮（如「点击获取」生成雪花 ID） */
+.field__row { display: flex; align-items: center; gap: 8px; }
+.field__row input { flex: 1; min-width: 0; }
+.field__btn {
+    height: 36px;
+    flex: none;
+    padding: 0 12px;
+    font-size: 12.5px;
+    font-weight: 600;
+    white-space: nowrap;
+    border-radius: 9px;
+}
+
 .filter-bar__status { display: flex; align-items: center; gap: 8px; margin-left: auto; }.filter-bar__hint { font-size: 12px; color: var(--muted); }
 .filter-bar__hint code {
     font-family: var(--font-mono);

@@ -413,8 +413,14 @@
                 <div class="filter-bar">
                     <label class="field">
                         <span class="field__label">起始雪花 ID</span>
-                        <input type="text" id="startSnowflakeId" inputmode="numeric"
-                               placeholder="例如：1443166316329340928">
+                        <div class="field__row">
+                            <input type="text" id="startSnowflakeId" inputmode="numeric"
+                                   placeholder="例如：1443166316329340928">
+                            <button class="mini-btn field__btn" type="button"
+                                    data-action="snowflake.pick"
+                                    data-snowflake-target="startSnowflakeId"
+                                    title="按 62 位雪花算法生成一个 ID 并填入">点击获取</button>
+                        </div>
                     </label>
                     <p class="filter-bar__hint">
                         形如 <code>('数字ID', ...)</code> 的参数会被依次替换为起始值 + 1、+ 2 …
@@ -519,17 +525,26 @@
                 <div class="filter-bar">
                     <label class="field">
                         <span class="field__label">起始雪花 ID *</span>
-                        <input type="text" id="billRuleStartId" inputmode="numeric"
-                               placeholder="例如：1443166316329340928">
+                        <div class="field__row">
+                            <input type="text" id="billRuleStartId" inputmode="numeric"
+                                   placeholder="例如：1443166316329340928">
+                            <button class="mini-btn field__btn" type="button"
+                                    data-action="snowflake.pick"
+                                    data-snowflake-target="billRuleStartId"
+                                    title="按 62 位雪花算法生成一个 ID 并填入">点击获取</button>
+                        </div>
                     </label>
                     <label class="field">
                         <span class="field__label">makebill_id（转单规则主表 ID）*</span>
-                        <input type="text" id="billRuleMakebillId" inputmode="numeric"
-                               placeholder="例如：2664164073513418780">
+                        <div class="field__row">
+                            <input type="text" id="billRuleMakebillId" inputmode="numeric"
+                                   placeholder="例如：2664164073513418780">
+                            <button class="mini-btn field__btn" type="button"
+                                    data-action="snowflake.pick"
+                                    data-snowflake-target="billRuleMakebillId"
+                                    title="按 62 位雪花算法生成一个 ID 并填入">点击获取</button>
+                        </div>
                     </label>
-                    <p class="filter-bar__hint">
-                        目标表：<code>iuap_apcom_businesssflow.domain_make_bill_rule_detail</code>
-                    </p>
                 </div>
 
                 <div class="notice" id="billRuleNotice"></div>

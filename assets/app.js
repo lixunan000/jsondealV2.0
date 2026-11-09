@@ -109,6 +109,65 @@
     }
 
     /* ---------------------------------------------------------
+     * 雪花 ID 生成
+     *
+     * 完全对齐主流微服务平台的 62 位雪花 ID 生成器：
+     *   id = ((unix秒 - 1483200000) << 33)
+     *      | (dataCenterId << 25)   8 位
+     *      | (workerId      << 19)  6 位
+     *      | (reservedBit   << 18)  1 位（领域隔离位）
+     *      | sequence               18 位
+     * 纪元 1483200000 = 2017-01-02 00:00:00（北京时间）
+     * ------------------------------------------------------- */
+
+    const SNOWFLAKE_EPOCH = 1483200000n;
+    const SNOWFLAKE_SEQ_MASK = 0x3FFFFn;      // 18 位序列掩码
+    const SNOWFLAKE_MAX_DC = 256;             // dataCenterId 8 位
+    const SNOWFLAKE_MAX_WORKER = 64;          // workerId 6 位
+
+    let lastSnowflakeId = 0n;
+    // 节点号在一次会话内固定，模拟同一台发号实例
+    let snowflakeNode = null;
+
+    function generateSnowflakeId() {
+        if (!snowflakeNode) {
+            snowflakeNode = {
+                dc: BigInt(Math.floor(Math.random() * SNOWFLAKE_MAX_DC)),
+                worker: BigInt(Math.floor(Math.random() * SNOWFLAKE_MAX_WORKER))
+            };
+        }
+        const seconds = BigInt(Math.floor(Date.now() / 1000));
+        const timestamp = seconds - SNOWFLAKE_EPOCH;
+        const dataCenterId = snowflakeNode.dc;
+        const workerId = snowflakeNode.worker;
+        // 与主流实现一致：跨秒时序列号是随机的，同一秒内才自增
+        let sequence = BigInt(Math.floor(Math.random() * 262144));
+
+        let id = (timestamp << 33n) | (dataCenterId << 25n) | (workerId << 19n) | sequence;
+
+        if (id <= lastSnowflakeId) {
+            // 保证严格递增、不与上一次重复；序列耗尽则时间戳 +1
+            const seq = lastSnowflakeId & SNOWFLAKE_SEQ_MASK;
+            id = seq < SNOWFLAKE_SEQ_MASK
+                ? (lastSnowflakeId & ~SNOWFLAKE_SEQ_MASK) | (seq + 1n)
+                : ((lastSnowflakeId >> 33n) + 1n) << 33n;
+        }
+        lastSnowflakeId = id;
+        return id;
+    }
+
+    /** 生成一个雪花 ID 并填入指定输入框 */
+    function pickSnowflakeId(targetId) {
+        const input = document.getElementById(targetId);
+        if (!input) return;
+        const id = generateSnowflakeId().toString();
+        input.value = id;
+        input.dispatchEvent(new Event('input', { bubbles: true }));
+        input.focus();
+        toast('已生成雪花 ID：' + id, 'success');
+    }
+
+    /* ---------------------------------------------------------
      * 2. 主题 / 换行 / 路由
      * ------------------------------------------------------- */
 
@@ -2301,6 +2360,11 @@
         'idreplace.clear': clearIdReplace,
         'idreplace.copy': () => copyText(paneText('idReplaceOutput')),
         'idreplace.download': () => downloadFile('replaced_sql.txt', paneText('idReplaceOutput')),
+
+        'snowflake.pick': trigger => {
+            const target = trigger.dataset.snowflakeTarget;
+            if (target) pickSnowflakeId(target);
+        },
 
         'groovy.run': runGroovy,
         'groovy.clear': clearGroovy,
