@@ -182,10 +182,11 @@
                 <div class="view__head">
                     <div class="view__intro">
                         <h2>JSON 格式化</h2>
-                        <p>校验并美化 JSON 字符串，输出 4 空格缩进的规范格式。</p>
+                        <p>校验并美化 JSON 字符串，输出 4 空格缩进的规范格式。兼容整体转义的文本（如 {\"a\":\"1\"}），自动还原转义字符。</p>
                     </div>
                     <div class="view__actions">
                         <button class="btn btn--primary" data-action="format.run">格式化</button>
+                        <button class="btn btn--ghost" data-action="format.sort">排序</button>
                         <button class="btn btn--ghost" data-action="format.clear">清空</button>
                     </div>
                 </div>
@@ -203,10 +204,13 @@
                         </div>
                     </article>
 
-                    <article class="panel">
+                    <article class="panel" id="formatOutputPanel">
                         <header class="panel__head">
                             <h3>输出</h3>
                             <div class="panel__tools">
+                                <button class="mini-btn mini-btn--icon" data-action="panel.fullscreen"
+                                        data-fullscreen-target="formatOutputPanel"
+                                        title="全屏显示" aria-label="全屏显示">⛶</button>
                                 <button class="mini-btn" data-action="format.copy">复制</button>
                                 <button class="mini-btn" data-action="format.download">下载</button>
                             </div>
@@ -224,7 +228,7 @@
                 <div class="view__head">
                     <div class="view__intro">
                         <h2>JSON 对比</h2>
-                        <p>深度比较两个 JSON 的结构与取值，差异行会直接高亮在对应文本上。</p>
+                        <p>深度比较两个 JSON 的结构与取值，差异行会直接高亮在对应文本上。未格式化的 JSON 会先自动排版后再对比。</p>
                     </div>
                     <div class="view__actions">
                         <button class="btn btn--primary" data-action="compare.run">对比</button>
@@ -240,7 +244,7 @@
                             <div class="panel__tools">
                                 <button class="mini-btn" data-action="compare.example1">加载示例</button>
                                 <span class="chip chip--danger" data-stat="compare.removed">删除 0</span>
-                                <span class="chip chip--warn" data-stat="compare.changed">修改 0</span>
+                                <span class="chip chip--changed" data-stat="compare.changed">修改 0</span>
                             </div>
                         </header>
                         <div class="editor" data-editor="compareInput1">
@@ -257,7 +261,7 @@
                             <div class="panel__tools">
                                 <button class="mini-btn" data-action="compare.example2">加载示例</button>
                                 <span class="chip chip--success" data-stat="compare.added">新增 0</span>
-                                <span class="chip chip--warn" data-stat="compare.changed2">修改 0</span>
+                                <span class="chip chip--changed" data-stat="compare.changed2">修改 0</span>
                             </div>
                         </header>
                         <div class="editor" data-editor="compareInput2">

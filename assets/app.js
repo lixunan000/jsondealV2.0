@@ -185,6 +185,7 @@
     }
 
     function applyRoute(route) {
+        closeFullscreenPanel();
         $$('.view').forEach(view => {
             view.hidden = view.id !== 'view-' + route;
         });
@@ -202,7 +203,76 @@
     }
 
     /* ---------------------------------------------------------
-     * 3. 编辑器（行号 + 滚动同步 + 语法高亮）
+     * 3. 面板全屏（沉浸模式）
+     * ------------------------------------------------------- */
+
+    /** 全屏面板的宿主层：挂在 body 下，避开视图入场动画残留的 transform */
+    function getFullscreenLayer() {
+        let layer = document.getElementById('fullscreenLayer');
+        if (!layer) {
+            layer = document.createElement('div');
+            layer.id = 'fullscreenLayer';
+            document.body.appendChild(layer);
+        }
+        return layer;
+    }
+
+    // 记录全屏前面板的原位置，退出时原样放回
+    let fullscreenHome = null;
+
+    function setFullscreenButtonState(panelId, active) {
+        const button = $('[data-fullscreen-target="' + panelId + '"]');
+        if (!button) return;
+        button.textContent = active ? '✕' : '⛶';
+        button.title = active ? '退出全屏' : '全屏显示';
+        button.setAttribute('aria-label', button.title);
+    }
+
+    /** 切换某个面板的全屏（沉浸）显示 */
+    function togglePanelFullscreen(panelId) {
+        const panel = document.getElementById(panelId);
+        if (!panel) return;
+
+        if (panel.classList.contains('is-fullscreen')) {
+            exitFullscreen(panel);
+        } else {
+            // 同一时间只允许一个面板处于全屏状态
+            $$('.panel.is-fullscreen').forEach(el => {
+                exitFullscreen(el);
+            });
+            fullscreenHome = { parent: panel.parentElement, next: panel.nextSibling };
+            getFullscreenLayer().appendChild(panel);
+            panel.classList.add('is-fullscreen');
+            setFullscreenButtonState(panelId, true);
+        }
+
+        document.body.classList.toggle('is-locked', !!$('.panel.is-fullscreen'));
+        // 尺寸变化后重新计算折行与行号
+        refreshPanes();
+    }
+
+    /** 退出全屏：把面板放回原来的位置 */
+    function exitFullscreen(panel) {
+        panel.classList.remove('is-fullscreen');
+        setFullscreenButtonState(panel.id, false);
+        if (fullscreenHome && fullscreenHome.parent) {
+            const { parent, next } = fullscreenHome;
+            if (next && next.parentElement === parent) parent.insertBefore(panel, next);
+            else parent.appendChild(panel);
+        }
+        fullscreenHome = null;
+    }
+
+    function closeFullscreenPanel() {
+        const panel = $('.panel.is-fullscreen');
+        if (!panel) return;
+        exitFullscreen(panel);
+        document.body.classList.remove('is-locked');
+        refreshPanes();
+    }
+
+    /* ---------------------------------------------------------
+     * 4. 编辑器（行号 + 滚动同步 + 语法高亮）
      * ------------------------------------------------------- */
 
     const panes = new Map();
@@ -229,7 +299,11 @@
             panes.set(id, pane);
 
             if (pane.area) {
-                pane.area.addEventListener('input', () => updatePane(id));
+                pane.area.addEventListener('input', () => {
+                    updatePane(id);
+                    // 内容一旦变化，上一次的差异高亮即失效
+                    if (id === 'compareInput1' || id === 'compareInput2') clearDiffMarks(id);
+                });
                 pane.area.addEventListener('scroll', () => syncPaneScroll(id));
             }
             if (pane.code) {
@@ -398,7 +472,7 @@
     }
 
     /* ---------------------------------------------------------
-     * 4. 命令面板
+     * 5. 命令面板
      * ------------------------------------------------------- */
 
     const PALETTE_ITEMS = TOOL_ROUTES.map(route => ({
@@ -449,8 +523,60 @@
     }
 
     /* ---------------------------------------------------------
-     * 5. 工具一：JSON 格式化
+     * 6. 工具一：JSON 格式化
      * ------------------------------------------------------- */
+
+    /** 把 \" \\ \n 等转义序列还原成真实字符 */
+    function unescapeJsonText(text) {
+        return text.replace(/\\(u[0-9a-fA-F]{4}|["\\/bfnrt])/g, (match, group) => {
+            switch (group.charAt(0)) {
+                case 'u': return String.fromCharCode(parseInt(group.slice(1), 16));
+                case 'b': return '\b';
+                case 'f': return '\f';
+                case 'n': return '\n';
+                case 'r': return '\r';
+                case 't': return '\t';
+                default: return group;
+            }
+        });
+    }
+
+    /**
+     * 宽松解析 JSON，兼容「整体被转义」的文本，例如
+     *   {\"inspectResult\":\"1\",\"pk_org\":\"2512556443864399874\"}
+     *   "{\"inspectResult\":\"1\"}"
+     * 依次尝试：直接解析 → 当作字符串解析后再解一层 → 先反转义再解析
+     */
+    function parseJsonLoose(text) {
+        const attempts = [
+            t => JSON.parse(t),
+            t => JSON.parse(JSON.parse('"' + t + '"')),
+            t => JSON.parse(unescapeJsonText(t))
+        ];
+        let lastError = null;
+        for (let i = 0; i < attempts.length; i++) {
+            try {
+                return { value: attempts[i](text), converted: i > 0 };
+            } catch (error) {
+                lastError = error;
+            }
+        }
+        throw lastError;
+    }
+
+    /** 宽松解析并把「JSON 字符串里装的 JSON」再解一层 */
+    function parseJsonInput(text) {
+        const parsed = parseJsonLoose(text);
+        if (typeof parsed.value === 'string') {
+            try {
+                const inner = JSON.parse(parsed.value);
+                return { value: inner, converted: true };
+            } catch (error) {
+                /* 确实是普通字符串，保持原样 */
+            }
+        }
+        return parsed;
+    }
 
     function runFormat(button) {
         updatePane('formatInput');
@@ -462,12 +588,61 @@
         busy(button, true);
         setTimeout(() => {
             try {
-                const parsed = JSON.parse(input);
-                const formatted = JSON.stringify(parsed, null, 4);
+                const parsed = parseJsonInput(input);
+                const formatted = JSON.stringify(parsed.value, null, 4);
                 setPaneText('formatOutput', formatted, { json: true, placeholder: '格式化结果将在这里显示…' });
-                toast('格式化成功！', 'success');
+                toast(parsed.converted ? '格式化成功！（已自动还原转义字符）' : '格式化成功！', 'success');
             } catch (error) {
                 console.error('Format error:', error);
+                setPaneText('formatOutput', '', { placeholder: '格式化结果将在这里显示…' });
+                toast('JSON 格式错误，请检查输入', 'error');
+            } finally {
+                busy(button, false);
+            }
+        }, 80);
+    }
+
+    /**
+     * 递归按 key 的字母顺序排序对象。
+     * 先忽略大小写比较，大小写相同时再按编码值比较，保证结果稳定。
+     */
+    function sortJsonKeys(value) {
+        if (Array.isArray(value)) return value.map(sortJsonKeys);
+        if (value && typeof value === 'object') {
+            const sorted = {};
+            Object.keys(value).sort((a, b) => {
+                const la = a.toLowerCase();
+                const lb = b.toLowerCase();
+                if (la < lb) return -1;
+                if (la > lb) return 1;
+                if (a < b) return -1;
+                if (a > b) return 1;
+                return 0;
+            }).forEach(key => {
+                sorted[key] = sortJsonKeys(value[key]);
+            });
+            return sorted;
+        }
+        return value;
+    }
+
+    function runFormatSort(button) {
+        updatePane('formatInput');
+        const input = paneText('formatInput').trim();
+        if (!input) {
+            toast('请输入 JSON 字符串', 'warning');
+            return;
+        }
+        busy(button, true);
+        setTimeout(() => {
+            try {
+                const parsed = parseJsonInput(input);
+                const sorted = JSON.stringify(sortJsonKeys(parsed.value), null, 4);
+                setPaneText('formatOutput', sorted, { json: true, placeholder: '格式化结果将在这里显示…' });
+                toast('排序完成，已按 key 的字母顺序输出', 'success');
+            } catch (error) {
+                console.error('Format sort error:', error);
+                setPaneText('formatOutput', '', { placeholder: '格式化结果将在这里显示…' });
                 toast('JSON 格式错误，请检查输入', 'error');
             } finally {
                 busy(button, false);
@@ -483,7 +658,7 @@
     }
 
     /* ---------------------------------------------------------
-     * 6. 工具二：JSON 对比
+     * 7. 工具二：JSON 对比
      * ------------------------------------------------------- */
 
     function isObject(value) {
@@ -604,7 +779,179 @@
         return count;
     }
 
-    /* --- 差异行高亮（与原实现一致：按行匹配键名/数组元素） --- */
+    /* --- 差异行高亮 --- */
+
+    /**
+     * 解析 JSON 文本，并记录每个路径在原文中的行号。
+     * 返回 { value, index }，index 的 key 是形如 a.b[0].c 的路径，
+     * value 为 { keyLine, valueLine }（键所在行 / 值所在行，均从 1 开始）。
+     */
+    function parseJsonWithLines(text) {
+        let pos = 0;
+        let line = 1;
+        const index = new Map();
+
+        function fail(message) {
+            throw new Error(message + '（第 ' + line + ' 行）');
+        }
+
+        function skipWhitespace() {
+            while (pos < text.length) {
+                const ch = text[pos];
+                if (ch === '\n') { line++; pos++; }
+                else if (ch === ' ' || ch === '\t' || ch === '\r') { pos++; }
+                else break;
+            }
+        }
+
+        function readString() {
+            const start = pos;
+            pos++;
+            while (pos < text.length) {
+                const ch = text[pos];
+                if (ch === '\\') { pos += 2; continue; }
+                if (ch === '"') { pos++; return JSON.parse(text.slice(start, pos)); }
+                if (ch === '\n') fail('字符串中出现换行');
+                pos++;
+            }
+            fail('字符串未闭合');
+        }
+
+        function readNumber() {
+            const start = pos;
+            while (pos < text.length && /[-+0-9.eE]/.test(text[pos])) pos++;
+            const raw = text.slice(start, pos);
+            const value = Number(raw);
+            if (Number.isNaN(value)) fail('无法识别的数字 "' + raw + '"');
+            return value;
+        }
+
+        function readLiteral(word, value) {
+            if (text.substr(pos, word.length) !== word) fail('无法识别的字面量');
+            pos += word.length;
+            return value;
+        }
+
+        function parseValue(path) {
+            skipWhitespace();
+            const startLine = line;
+            const ch = text[pos];
+            let value;
+            if (ch === '{') value = parseObject(path);
+            else if (ch === '[') value = parseArray(path);
+            else if (ch === '"') value = readString();
+            else if (ch === '-' || (ch >= '0' && ch <= '9')) value = readNumber();
+            else if (ch === 't') value = readLiteral('true', true);
+            else if (ch === 'f') value = readLiteral('false', false);
+            else if (ch === 'n') value = readLiteral('null', null);
+            else fail('无法识别的字符 "' + (ch || '结尾') + '"');
+            return { value: value, startLine: startLine };
+        }
+
+        function parseObject(path) {
+            pos++;
+            const obj = {};
+            skipWhitespace();
+            if (text[pos] === '}') { pos++; return obj; }
+            for (;;) {
+                skipWhitespace();
+                if (text[pos] !== '"') fail('对象的键必须是字符串');
+                const keyLine = line;
+                const key = readString();
+                skipWhitespace();
+                if (text[pos] !== ':') fail('键 "' + key + '" 后缺少冒号');
+                pos++;
+                const childPath = path ? path + '.' + key : key;
+                const info = parseValue(childPath);
+                obj[key] = info.value;
+                index.set(childPath, { keyLine: keyLine, valueLine: info.startLine });
+                skipWhitespace();
+                if (text[pos] === ',') {
+                    pos++;
+                    skipWhitespace();
+                    if (text[pos] === '}') { pos++; break; }
+                    continue;
+                }
+                if (text[pos] === '}') { pos++; break; }
+                fail('对象中缺少逗号或右花括号');
+            }
+            return obj;
+        }
+
+        function parseArray(path) {
+            pos++;
+            const arr = [];
+            skipWhitespace();
+            if (text[pos] === ']') { pos++; return arr; }
+            for (let i = 0; ; i++) {
+                const childPath = path ? path + '[' + i + ']' : String(i);
+                const info = parseValue(childPath);
+                arr.push(info.value);
+                index.set(childPath, { keyLine: info.startLine, valueLine: info.startLine });
+                skipWhitespace();
+                if (text[pos] === ',') {
+                    pos++;
+                    skipWhitespace();
+                    if (text[pos] === ']') { pos++; break; }
+                    continue;
+                }
+                if (text[pos] === ']') { pos++; break; }
+                fail('数组中缺少逗号或右方括号');
+            }
+            return arr;
+        }
+
+        const parsed = parseValue('');
+        skipWhitespace();
+        return { value: parsed.value, index: index };
+    }
+
+    /** 高亮优先级：修改 > 新增 / 缺失 */
+    const DIFF_CLASS_PRIORITY = { 'hl-changed': 3, 'hl-added': 2, 'hl-removed': 2 };
+
+    /**
+     * 依据路径行号索引，把差异精确标注到原文对应的行上。
+     * 新增 / 缺失 → 标注键所在行；修改 → 标注值所在行（两侧都标注）。
+     */
+    function buildDiffLineMap(text, differences, jsonType) {
+        const map = {};
+        let index = null;
+        try {
+            index = parseJsonWithLines(text).index;
+        } catch (error) {
+            console.warn('行号索引解析失败，回退为模糊匹配：', error);
+            return createDiffLineMap(text.split('\n'), differences, jsonType);
+        }
+
+        differences.forEach(diff => {
+            const entry = index.get(diff.path);
+            if (!entry) return;
+
+            let className = '';
+            let lineNumber = 0;
+
+            if (diff.type === 'added') {
+                if (jsonType !== 'json2') return;
+                className = 'hl-added';
+                lineNumber = entry.keyLine;
+            } else if (diff.type === 'removed') {
+                if (jsonType !== 'json1') return;
+                className = 'hl-removed';
+                lineNumber = entry.keyLine;
+            } else {
+                className = 'hl-changed';
+                lineNumber = entry.valueLine;
+            }
+
+            if (!lineNumber) return;
+            const current = map[lineNumber];
+            if (!current || (DIFF_CLASS_PRIORITY[className] || 0) > (DIFF_CLASS_PRIORITY[current] || 0)) {
+                map[lineNumber] = className;
+            }
+        });
+
+        return map;
+    }
 
     function assignHighlightClass(diffLineMap, lineNumber, diffType, jsonType) {
         let highlightClass = '';
@@ -700,7 +1047,7 @@
         const pane = panes.get(paneId);
         if (!pane || !pane.overlay) return;
         const lines = text.split('\n');
-        const map = createDiffLineMap(lines, differences, jsonType);
+        const map = buildDiffLineMap(text, differences, jsonType);
 
         let html = '';
         lines.forEach((line, index) => {
@@ -709,7 +1056,31 @@
             html += '<div class="hl-line ' + cls + '">' + escapeHtml(line) + '</div>';
         });
         pane.overlay.innerHTML = html;
+        paintGutterHighlights(paneId, map);
         syncPaneScroll(paneId);
+    }
+
+    /** 行号栏同步标注差异所在行 */
+    function paintGutterHighlights(paneId, map) {
+        const pane = panes.get(paneId);
+        if (!pane || !pane.gutter) return;
+        const children = pane.gutter.children;
+        let lineNumber = 0;
+        for (let i = 0; i < children.length; i++) {
+            const el = children[i];
+            if (el.classList.contains('gutter__pad')) continue;
+            lineNumber++;
+            const cls = map[lineNumber] || '';
+            if (el.className !== cls) el.className = cls;
+        }
+    }
+
+    /** 清掉某个面板上的差异标注（高亮条 + 行号） */
+    function clearDiffMarks(paneId) {
+        const pane = panes.get(paneId);
+        if (!pane) return;
+        if (pane.overlay) pane.overlay.innerHTML = '';
+        paintGutterHighlights(paneId, {});
     }
 
     function groupDifferencesByType(differences) {
@@ -735,7 +1106,7 @@
             '<span class="chip chip--accent">总差异 ' + (summary.total_differences || differences.length) + '</span>' +
             '<span class="chip chip--danger">删除 ' + grouped.removed.length + '</span>' +
             '<span class="chip chip--success">新增 ' + grouped.added.length + '</span>' +
-            '<span class="chip chip--warn">修改 ' + grouped.changed.length + '</span>' +
+            '<span class="chip chip--changed">修改 ' + grouped.changed.length + '</span>' +
             '<span class="chip">JSON 1 键数 ' + summary.json1_keys + '</span>' +
             '<span class="chip">JSON 2 键数 ' + summary.json2_keys + '</span>' +
             '</div>';
@@ -760,6 +1131,16 @@
         box.innerHTML = html;
     }
 
+    /** 写入输入框并同步行号（保留滚动位置） */
+    function setPaneInput(id, text) {
+        const pane = panes.get(id);
+        if (!pane || !pane.area) return;
+        const scrollTop = pane.area.scrollTop;
+        pane.area.value = text;
+        pane.area.scrollTop = scrollTop;
+        updatePane(id);
+    }
+
     function runCompare(button) {
         updatePane('compareInput1');
         updatePane('compareInput2');
@@ -773,12 +1154,24 @@
         setTimeout(() => {
             try {
                 clearHighlights();
-                const obj1 = JSON.parse(input1);
-                const obj2 = JSON.parse(input2);
+
+                // 先解析：两边都合法才继续，避免只把一边改掉
+                const parsed1 = parseJsonInput(input1);
+                const parsed2 = parseJsonInput(input2);
+
+                // 未格式化的 JSON 先自动排版，保证高亮能落到具体行上
+                const text1 = JSON.stringify(parsed1.value, null, 4);
+                const text2 = JSON.stringify(parsed2.value, null, 4);
+                const autoFormatted = text1 !== input1 || text2 !== input2;
+                if (text1 !== input1) setPaneInput('compareInput1', text1);
+                if (text2 !== input2) setPaneInput('compareInput2', text2);
+
+                const obj1 = parsed1.value;
+                const obj2 = parsed2.value;
                 const differences = findJSONDifferences(obj1, obj2);
 
-                renderOverlay('compareInput1', input1, differences, 'json1');
-                renderOverlay('compareInput2', input2, differences, 'json2');
+                renderOverlay('compareInput1', text1, differences, 'json1');
+                renderOverlay('compareInput2', text2, differences, 'json2');
 
                 const grouped = groupDifferencesByType(differences);
                 setStat('compare.removed', '删除 ' + grouped.removed.length);
@@ -794,9 +1187,9 @@
                 });
 
                 if (!differences.length) {
-                    toast('两个 JSON 完全相同', 'info');
+                    toast(autoFormatted ? '已自动格式化，两个 JSON 完全相同' : '两个 JSON 完全相同', 'info');
                 } else {
-                    toast('对比完成，差异已高亮显示', 'success');
+                    toast(autoFormatted ? '已自动格式化输入内容，差异已高亮显示' : '对比完成，差异已高亮显示', 'success');
                 }
             } catch (error) {
                 console.error('Compare error:', error);
@@ -812,6 +1205,8 @@
         const p2 = panes.get('compareInput2');
         if (p1 && p1.overlay) p1.overlay.innerHTML = '';
         if (p2 && p2.overlay) p2.overlay.innerHTML = '';
+        paintGutterHighlights('compareInput1', {});
+        paintGutterHighlights('compareInput2', {});
         const box = $('#compareResult');
         if (box) {
             box.innerHTML = '<div class="empty"><span class="empty__icon">⇄</span><p>点击「对比」开始分析两个 JSON 的差异</p></div>';
@@ -865,7 +1260,7 @@
     }
 
     /* ---------------------------------------------------------
-     * 7. 工具三：JSON 断言生成
+     * 8. 工具三：JSON 断言生成
      * ------------------------------------------------------- */
 
     let assertDebounceTimer = null;
@@ -975,7 +1370,7 @@
             return;
         }
         try {
-            const parsed = JSON.parse(input);
+            const parsed = parseJsonInput(input).value;
             const assertions = generateAssertionsFromJson(parsed);
             setPaneText('assertOutput', assertions, { placeholder: '断言代码将在这里显示…' });
             updateAssertStatus('完成', '已生成 ' + countAssertions(assertions) + ' 条断言');
@@ -994,7 +1389,7 @@
             return;
         }
         try {
-            const parsed = JSON.parse(input);
+            const parsed = parseJsonInput(input).value;
             $('#assertInput').value = JSON.stringify(parsed, null, 4);
             updatePane('assertInput');
             runAssert();
@@ -1013,7 +1408,7 @@
     }
 
     /* ---------------------------------------------------------
-     * 8. 工具四：UID 提取
+     * 9. 工具四：UID 提取
      * ------------------------------------------------------- */
 
     const UID_REGEX = /UID:[^\s,"'`#()\[\]{}<>=@|;]+/gi;
@@ -1063,7 +1458,7 @@
     }
 
     /* ---------------------------------------------------------
-     * 9. 工具五：批量 ID 替换
+     * 10. 工具五：批量 ID 替换
      * ------------------------------------------------------- */
 
     async function runIdReplace(button) {
@@ -1123,7 +1518,7 @@
     }
 
     /* ---------------------------------------------------------
-     * 10. 工具六：Groovy 提取 SQL
+     * 11. 工具六：Groovy 提取 SQL
      * ------------------------------------------------------- */
 
     function cleanSQL(sql) {
@@ -1198,7 +1593,7 @@
     }
 
     /* ---------------------------------------------------------
-     * 11. 文件上传 / 拖拽
+     * 12. 文件上传 / 拖拽
      * ------------------------------------------------------- */
 
     const VALID_FILE_TYPES = ['.txt', '.json', '.log', '.csv', '.groovy', '.sql'];
@@ -1308,7 +1703,7 @@
     }
 
     /* ---------------------------------------------------------
-     * 12. XLSX 解析（浏览器端最小实现：ZIP + SheetML）
+     * 13. XLSX 解析（浏览器端最小实现：ZIP + SheetML）
      * ------------------------------------------------------- */
 
     /** 解压 ZIP 条目（存储方式或 deflate） */
@@ -1609,7 +2004,7 @@
     }
 
     /* ---------------------------------------------------------
-     * 13. 工具七：转单规则 SQL 生成
+     * 14. 工具七：转单规则 SQL 生成
      * ------------------------------------------------------- */
 
     const BILL_RULE_TABLE = 'iuap_apcom_businesssflow.domain_make_bill_rule_detail';
@@ -1868,7 +2263,7 @@
     }
 
     /* ---------------------------------------------------------
-     * 13. 事件绑定
+     * 15. 事件绑定
      * ------------------------------------------------------- */
 
     const ACTIONS = {
@@ -1876,7 +2271,12 @@
         'palette.close': closePalette,
 
         'format.run': runFormat,
+        'format.sort': runFormatSort,
         'format.clear': clearFormat,
+        'panel.fullscreen': trigger => {
+            const target = trigger.dataset.fullscreenTarget;
+            if (target) togglePanelFullscreen(target);
+        },
         'format.copy': () => copyText(paneText('formatOutput')),
         'format.download': () => downloadFile('formatted.json', paneText('formatOutput'), 'application/json;charset=utf-8'),
 
@@ -1980,6 +2380,7 @@
             }
             if (e.key === 'Escape') {
                 if (!$('#palette').hidden) { closePalette(); return; }
+                if ($('.panel.is-fullscreen')) { closeFullscreenPanel(); return; }
                 closeSidebar();
                 return;
             }
@@ -2030,7 +2431,7 @@
     }
 
     /* ---------------------------------------------------------
-     * 13. 首页演示代码
+     * 16. 首页演示代码
      * ------------------------------------------------------- */
 
     const HERO_SAMPLE = {
@@ -2053,7 +2454,7 @@
     }
 
     /* ---------------------------------------------------------
-     * 14. 启动
+     * 17. 启动
      * ------------------------------------------------------- */
 
     function init() {

@@ -31,6 +31,15 @@
     --danger: #dc2626;
     --danger-soft: #fdecec;
 
+    /* 差异高亮 */
+    --hl-added: #16a34a;
+    --hl-added-bg: rgba(22, 163, 74, .16);
+    --hl-removed: #dc2626;
+    --hl-removed-bg: rgba(220, 38, 38, .16);
+    --hl-changed: #a16207;
+    --hl-changed-bg: rgba(250, 204, 21, .32);
+    --hl-changed-soft: #fdf7dd;
+
     --code-bg: #ffffff;
     --code-gutter: #f7f8fc;
     --code-text: #24292f;
@@ -81,6 +90,14 @@
     --warn-soft: #2a2113;
     --danger: #f87171;
     --danger-soft: #2c1717;
+
+    --hl-added: #4ade80;
+    --hl-added-bg: rgba(74, 222, 128, .14);
+    --hl-removed: #f87171;
+    --hl-removed-bg: rgba(248, 113, 113, .14);
+    --hl-changed: #e0b64a;
+    --hl-changed-bg: rgba(250, 204, 21, .13);
+    --hl-changed-soft: #2b2513;
 
     --code-bg: #11151d;
     --code-gutter: #161b25;
@@ -447,6 +464,7 @@ kbd {
 .chip--accent { background: var(--primary-soft); color: var(--primary); }
 .chip--success { background: var(--success-soft); color: var(--success); }
 .chip--warn { background: var(--warn-soft); color: var(--warn); }
+.chip--changed { background: var(--hl-changed-soft); color: var(--hl-changed); }
 .chip--danger { background: var(--danger-soft); color: var(--danger); }
 
 /* =========================================================
@@ -596,6 +614,47 @@ kbd {
 
 .panel--result { margin-top: 0; }
 
+/* =========================================================
+   面板全屏（沉浸模式）
+   ========================================================= */
+
+body.is-locked { overflow: hidden; }
+
+.panel.is-fullscreen {
+    position: fixed;
+    inset: 0;
+    z-index: 80;
+    margin: 0;
+    padding: 16px 18px 18px;
+    gap: 14px;
+    border: none;
+    border-radius: 0;
+    background: var(--bg);
+    background-image: var(--bg-grad);
+    box-shadow: none;
+    animation: panelFullscreen .18s ease;
+}
+
+.panel.is-fullscreen .editor {
+    flex: 1;
+    min-height: 0;
+    height: auto;
+}
+
+.panel.is-fullscreen .panel__head h3 { font-size: 15px; }
+
+@keyframes panelFullscreen {
+    from { opacity: 0; }
+    to { opacity: 1; }
+}
+
+.mini-btn--icon {
+    width: 27px;
+    padding: 0;
+    font-size: 14px;
+    line-height: 1;
+}
+
 .panel__head {
     display: flex;
     align-items: center;
@@ -700,9 +759,14 @@ kbd {
     min-height: var(--code-lh);
     color: transparent;
 }
-.hl-added { background: rgba(22, 163, 74, .22); }
-.hl-removed { background: rgba(220, 38, 38, .22); }
-.hl-changed { background: rgba(217, 119, 6, .22); }
+.editor__overlay .hl-added { background: var(--hl-added-bg); box-shadow: inset 3px 0 0 var(--hl-added); }
+.editor__overlay .hl-removed { background: var(--hl-removed-bg); box-shadow: inset 3px 0 0 var(--hl-removed); }
+.editor__overlay .hl-changed { background: var(--hl-changed-bg); box-shadow: inset 3px 0 0 var(--hl-changed); }
+
+/* 行号栏同步标注 */
+.editor__gutter .hl-added { color: var(--hl-added); font-weight: 700; }
+.editor__gutter .hl-removed { color: var(--hl-removed); font-weight: 700; }
+.editor__gutter .hl-changed { color: var(--hl-changed); font-weight: 700; }
 
 /* 自动换行（仅作用于输入区，结果区始终换行） */
 .is-wrap .editor__area,
@@ -809,7 +873,7 @@ kbd {
 }
 .diff-item--removed { border-left-color: var(--danger); }
 .diff-item--added { border-left-color: var(--success); }
-.diff-item--changed { border-left-color: var(--warn); }
+.diff-item--changed { border-left-color: var(--hl-changed); }
 
 .diff-item__path {
     font-family: var(--font-mono);
@@ -837,7 +901,7 @@ kbd {
 .diff-group__title:first-child { margin-top: 0; }
 .diff-group--removed .diff-group__title { color: var(--danger); }
 .diff-group--added .diff-group__title { color: var(--success); }
-.diff-group--changed .diff-group__title { color: var(--warn); }
+.diff-group--changed .diff-group__title { color: var(--hl-changed); }
 
 /* =========================================================
    上传区 & 文件列表
