@@ -739,6 +739,17 @@ body.is-locked { overflow: hidden; }
     overflow-wrap: break-word;
 }
 
+/* 可局部全选的展示块：鼠标悬停给出文本光标，键盘聚焦时给出焦点框 */
+.selectable-block {
+    cursor: text;
+    user-select: text;
+}
+
+.selectable-block:focus-visible {
+    outline: 2px solid var(--primary);
+    outline-offset: -2px;
+}
+
 .editor__overlay {
     position: absolute;
     top: 0;

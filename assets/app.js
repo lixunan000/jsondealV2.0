@@ -369,9 +369,73 @@
             }
             if (pane.code) {
                 pane.code.addEventListener('scroll', () => syncPaneScroll(id));
+                // 结果区是只读展示块：让它可聚焦，才能把 Ctrl+A 限定在框内
+                pane.code.tabIndex = 0;
+                pane.code.classList.add('selectable-block');
+                // 点击结果区任意位置（含行号栏）都记为「当前结果区」
+                box.addEventListener('mousedown', () => {
+                    lastSelectableBlock = pane.code;
+                });
             }
             updatePane(id);
         });
+    }
+
+    /* ---------------------------------------------------------
+     * 4.1 结果区的「局部全选」
+     *
+     * 结果区是只读的展示块（<pre>），不是可编辑控件，
+     * 浏览器默认的 Ctrl+A 会选中整个页面。
+     * 这里把结果区变成可聚焦元素：点击（或 Tab）进入某个结果区后，
+     * 按 Ctrl / Cmd + A 只选中该框内的文本，不再波及全屏。
+     * ------------------------------------------------------- */
+
+    /** 所有支持局部全选的展示块（各工具的结果区 + 首页预览 + 对比详情） */
+    const SELECTABLE_BLOCKS = '.editor__code, .hero__code, #compareResult';
+
+    /** 不在 pane 体系内、需要单独处理的展示块 */
+    const EXTRA_BLOCKS = '.hero__code, #compareResult';
+
+    /** 最近一次被点击的展示块，点击行号栏时作为兜底 */
+    let lastSelectableBlock = null;
+
+    function initSelectableBlocks() {
+        $$(EXTRA_BLOCKS).forEach(el => {
+            el.tabIndex = 0;
+            el.classList.add('selectable-block');
+            el.addEventListener('mousedown', () => {
+                lastSelectableBlock = el;
+            });
+        });
+    }
+
+    /**
+     * 解析 Ctrl+A 应当作用在哪个展示块上。
+     * 返回 null 表示交给浏览器默认行为（输入框内是原生行为，只选输入框内容）。
+     */
+    function resolveSelectableBlock() {
+        const active = document.activeElement;
+        if (!active) return lastSelectableBlock;
+        const tag = (active.tagName || '').toLowerCase();
+        // 输入框 / 文本域内用浏览器原生行为（只选框内文本）
+        if (tag === 'input' || tag === 'textarea') return null;
+        if (active.matches && active.matches(SELECTABLE_BLOCKS)) return active;
+        return lastSelectableBlock;
+    }
+
+    /** 只选中某个展示块内的文本 */
+    function selectBlockText(block) {
+        const selection = window.getSelection();
+        if (!selection) return;
+        // 空结果只有占位提示，选中它没有意义
+        if (block.querySelector('.editor__placeholder')) {
+            selection.removeAllRanges();
+            return;
+        }
+        const range = document.createRange();
+        range.selectNodeContents(block);
+        selection.removeAllRanges();
+        selection.addRange(range);
     }
 
     function paneText(id) {
@@ -2592,6 +2656,15 @@
             const trigger = $('[data-action="' + action + '"]');
             if (trigger) ACTIONS[action](trigger);
         });
+
+        // Ctrl / Cmd + A：只选中当前结果区内的文本，而不是整页全选
+        document.addEventListener('keydown', e => {
+            if (!(e.ctrlKey || e.metaKey) || e.key.toLowerCase() !== 'a') return;
+            const block = resolveSelectableBlock();
+            if (!block) return;
+            e.preventDefault();
+            selectBlockText(block);
+        });
     }
 
     function openSidebar() {
@@ -2639,6 +2712,7 @@
         applyWrap(!!prefs.wrap);
 
         initPanes();
+        initSelectableBlocks();
         bindEvents();
         renderHero();
 
