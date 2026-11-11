@@ -217,7 +217,7 @@
     }
 
     const ROUTES = {
-        home: { title: '总览', desc: '八个常用的小工具，覆盖调试、接口联调与数据准备场景。' },
+        home: { title: '总览', desc: '九个常用的小工具，覆盖调试、接口联调与数据准备场景。' },
         format: { title: 'JSON 格式化', desc: '校验并美化 JSON 字符串，输出 4 空格缩进的规范格式。' },
         compare: { title: 'JSON 对比', desc: '深度比较两个 JSON，差异行直接高亮在文本上。' },
         assert: { title: 'JSON 断言生成', desc: '根据接口响应 JSON 自动生成 assert 断言代码。' },
@@ -225,10 +225,11 @@
         idreplace: { title: '批量 ID 替换', desc: '将 SQL 中的数字 ID 替换为连续的雪花 ID。' },
         groovy: { title: 'Groovy 提取 SQL', desc: '从 Groovy 代码中提取 Update / Delete 语句。' },
         billrule: { title: '转单规则 SQL', desc: '读取转单规则配置模板，按行生成可直接执行的明细 INSERT 语句。' },
-        md5: { title: 'MD5 生成', desc: '对文本内容计算 32 位 MD5 摘要。' }
+        md5: { title: 'MD5 生成', desc: '对文本内容计算 32 位 MD5 摘要。' },
+        textdiff: { title: '文本对比', desc: '逐行比较两份任意文本，标记新增 / 删除 / 修改。' }
     };
 
-    const TOOL_ROUTES = ['format', 'compare', 'assert', 'uid', 'idreplace', 'groovy', 'billrule', 'md5'];
+    const TOOL_ROUTES = ['format', 'compare', 'assert', 'uid', 'idreplace', 'groovy', 'billrule', 'md5', 'textdiff'];
 
     function currentRoute() {
         const hash = (location.hash || '').replace(/^#\/?/, '');
@@ -343,7 +344,9 @@
         uidInput: 'uid.input',
         idReplaceInput: 'idreplace.input',
         groovyInput: 'groovy.input',
-        md5Input: 'md5.input'
+        md5Input: 'md5.input',
+        textDiffInputA: 'textdiff.leftLines',
+        textDiffInputB: 'textdiff.rightLines'
     };
 
     function initPanes() {
@@ -355,7 +358,9 @@
                 gutter: $('[data-gutter]', box),
                 area: $('textarea', box),
                 code: $('pre', box),
-                overlay: $('[data-overlay]', box)
+                overlay: $('[data-overlay]', box),
+                // 可选：自定义行号栏渲染（如 JSON 折叠树的折叠箭头）
+                gutterBuilder: null
             };
             panes.set(id, pane);
 
@@ -363,7 +368,9 @@
                 pane.area.addEventListener('input', () => {
                     updatePane(id);
                     // 内容一旦变化，上一次的差异高亮即失效
-                    if (id === 'compareInput1' || id === 'compareInput2') clearDiffMarks(id);
+                    if (pane.overlay) clearDiffMarks(id);
+                    // 文本对比：输入变了，差异结果一并作废
+                    if (id === 'textDiffInputA' || id === 'textDiffInputB') resetTextDiffResult();
                 });
                 pane.area.addEventListener('scroll', () => syncPaneScroll(id));
             }
@@ -391,10 +398,10 @@
      * ------------------------------------------------------- */
 
     /** 所有支持局部全选的展示块（各工具的结果区 + 首页预览 + 对比详情） */
-    const SELECTABLE_BLOCKS = '.editor__code, .hero__code, #compareResult';
+    const SELECTABLE_BLOCKS = '.editor__code, .hero__code, #compareResult, #textDiffResult';
 
     /** 不在 pane 体系内、需要单独处理的展示块 */
-    const EXTRA_BLOCKS = '.hero__code, #compareResult';
+    const EXTRA_BLOCKS = '.hero__code, #compareResult, #textDiffResult';
 
     /** 最近一次被点击的展示块，点击行号栏时作为兜底 */
     let lastSelectableBlock = null;
@@ -470,14 +477,19 @@
         const text = paneDisplayText(id);
         const lines = text ? text.split('\n') : [''];
         if (pane.gutter) {
-            let html = '';
-            for (let i = 0; i < lines.length; i++) {
-                html += '<div>' + (i + 1) + '</div>';
-                // 折行的逻辑行补齐空行，保证行号与内容始终对齐
-                const extra = paneRows(pane, lines[i]) - 1;
-                for (let k = 0; k < extra; k++) html += '<div class="gutter__pad"></div>';
+            if (typeof pane.gutterBuilder === 'function') {
+                // 由工具自行决定行号栏长什么样（如 JSON 折叠树的折叠箭头）
+                pane.gutterBuilder(pane.gutter, lines);
+            } else {
+                let html = '';
+                for (let i = 0; i < lines.length; i++) {
+                    html += '<div>' + (i + 1) + '</div>';
+                    // 折行的逻辑行补齐空行，保证行号与内容始终对齐
+                    const extra = paneRows(pane, lines[i]) - 1;
+                    for (let k = 0; k < extra; k++) html += '<div class="gutter__pad"></div>';
+                }
+                pane.gutter.innerHTML = html;
             }
-            pane.gutter.innerHTML = html;
         }
         const statName = PANE_STAT[id];
         if (statName) setStat(statName, lines.length + ' 行');
@@ -715,11 +727,11 @@
             try {
                 const parsed = parseJsonInput(input);
                 const formatted = JSON.stringify(parsed.value, null, 4);
-                setPaneText('formatOutput', formatted, { json: true, placeholder: '格式化结果将在这里显示…' });
+                setFormatOutput(formatted);
                 toast(parsed.converted ? '格式化成功！（已自动还原转义字符）' : '格式化成功！', 'success');
             } catch (error) {
                 console.error('Format error:', error);
-                setPaneText('formatOutput', '', { placeholder: '格式化结果将在这里显示…' });
+                setFormatOutput('');
                 toast('JSON 格式错误，请检查输入', 'error');
             } finally {
                 busy(button, false);
@@ -763,11 +775,11 @@
             try {
                 const parsed = parseJsonInput(input);
                 const sorted = JSON.stringify(sortJsonKeys(parsed.value), null, 4);
-                setPaneText('formatOutput', sorted, { json: true, placeholder: '格式化结果将在这里显示…' });
+                setFormatOutput(sorted);
                 toast('排序完成，已按 key 的字母顺序输出', 'success');
             } catch (error) {
                 console.error('Format sort error:', error);
-                setPaneText('formatOutput', '', { placeholder: '格式化结果将在这里显示…' });
+                setFormatOutput('');
                 toast('JSON 格式错误，请检查输入', 'error');
             } finally {
                 busy(button, false);
@@ -777,9 +789,195 @@
 
     function clearFormat() {
         $('#formatInput').value = '';
-        setPaneText('formatOutput', '', { placeholder: '格式化结果将在这里显示…' });
+        setFormatOutput('');
         updatePane('formatInput');
         toast('输入已清空', 'info');
+    }
+
+    /* ---------------------------------------------------------
+     * 6.1 JSON 折叠树视图
+     *
+     * 格式化结果按「树」呈现：行号栏带折叠箭头，点一下即可收起 / 展开
+     * 某个节点的所有子节点；折叠后在该行末尾标出被收起的条目数。
+     * 「复制 / 下载」始终输出完整的格式化 JSON，不受折叠影响。
+     * ------------------------------------------------------- */
+
+    /** 折叠树状态：当前格式化结果 + 被折叠节点的起始行号 */
+    const formatTree = {
+        text: '',
+        lines: [],
+        collapsed: new Set(),
+        visible: []
+    };
+
+    /**
+     * 解析格式化后的 JSON 文本，建立行与行之间的父子关系。
+     * 依赖 JSON.stringify 输出的固定规律：4 空格缩进、每行一个键 / 元素。
+     */
+    function analyzeJsonTree(text) {
+        const lines = text.split('\n').map((line, index) => {
+            const trimmed = line.trim();
+            // 去掉行尾逗号后再判断是开启行还是收尾行
+            const body = trimmed.endsWith(',') ? trimmed.slice(0, -1).trim() : trimmed;
+            const indent = line.length - line.replace(/^[ \t]+/, '').length;
+            return {
+                no: index + 1,
+                raw: line,
+                depth: Math.floor(indent / 4),
+                isOpen: body.endsWith('{') || body.endsWith('['),
+                isClose: body === '}' || body === ']',
+                isArray: body.endsWith('['),
+                parent: null,
+                endNo: 0,
+                childCount: 0
+            };
+        });
+
+        // 用栈把每个开启行和它的收尾行配对起来
+        const stack = [];
+        lines.forEach(line => {
+            if (line.isOpen) {
+                line.parent = stack.length ? stack[stack.length - 1] : null;
+                stack.push(line);
+            } else if (line.isClose) {
+                const opener = stack.pop();
+                if (opener) {
+                    opener.endNo = line.no;
+                    // 收尾行的父节点就是它所关闭的那个节点
+                    line.parent = opener;
+                }
+            } else {
+                line.parent = stack.length ? stack[stack.length - 1] : null;
+            }
+        });
+
+        // 直接子节点数量（收尾行不计入）
+        lines.forEach(line => {
+            if (!line.isOpen) return;
+            line.childCount = lines.filter(child => child.parent === line && !child.isClose).length;
+        });
+
+        return lines;
+    }
+
+    /** 某行是否被「折叠起来的祖先节点」藏住了 */
+    function isTreeLineHidden(line, collapsed) {
+        let parent = line.parent;
+        while (parent) {
+            if (collapsed.has(parent.no)) return true;
+            parent = parent.parent;
+        }
+        return false;
+    }
+
+    /** 折叠状态下的提示文字：… 3 项 / … 3 个字段 */
+    function foldHintText(line) {
+        const unit = line.isArray ? '项' : '个字段';
+        return ' … ' + line.childCount + ' ' + unit;
+    }
+
+    /** 渲染折叠树：只输出当前可见的行 */
+    function renderFormatTree() {
+        const pane = panes.get('formatOutput');
+        if (!pane || !pane.code) return;
+        const tree = formatTree;
+
+        if (!tree.text) {
+            pane.code.innerHTML = '<span class="editor__placeholder">格式化结果将在这里显示…</span>';
+            pane.canonical = '';
+            tree.visible = [];
+            updatePane('formatOutput');
+            return;
+        }
+
+        const visible = tree.lines.filter(line => !isTreeLineHidden(line, tree.collapsed));
+        tree.visible = visible;
+
+        const html = visible.map(line => {
+            let hint = '';
+            if (line.isOpen && tree.collapsed.has(line.no)) {
+                hint = '<span class="json-fold-hint" data-fold="' + line.no +
+                    '" title="点击展开">' + escapeHtml(foldHintText(line)) + '</span>';
+            }
+            return '<span class="json-line">' + highlightJson(line.raw) + hint + '</span>';
+        }).join('\n');
+
+        pane.code.innerHTML = html;
+        // 复制 / 下载始终拿到完整的格式化 JSON
+        pane.canonical = tree.text;
+        updatePane('formatOutput');
+    }
+
+    /** 折叠树的行号栏：行号 + 折叠箭头 */
+    function buildFormatGutter(gutter) {
+        const tree = formatTree;
+        if (!tree.text) {
+            gutter.innerHTML = '<div>1</div>';
+            return;
+        }
+        const pane = panes.get('formatOutput');
+        let html = '';
+        tree.visible.forEach(line => {
+            const collapsed = tree.collapsed.has(line.no);
+            const arrow = line.isOpen
+                ? '<i class="gutter__fold' + (collapsed ? ' is-collapsed' : '') + '" data-fold="' +
+                    line.no + '" title="点击折叠 / 展开"></i>'
+                : '<i class="gutter__fold is-empty"></i>';
+            html += '<div class="gutter__row">' + arrow + '<span class="gutter__num">' + line.no + '</span></div>';
+            // 折行的逻辑行补齐空行，保证行号与内容始终对齐
+            const extra = paneRows(pane, line.raw) - 1;
+            for (let k = 0; k < extra; k++) html += '<div class="gutter__pad"></div>';
+        });
+        gutter.innerHTML = html;
+    }
+
+    /** 输出折叠树（格式化 / 排序后的统一入口） */
+    function setFormatOutput(text) {
+        const tree = formatTree;
+        tree.text = text || '';
+        tree.lines = tree.text ? analyzeJsonTree(tree.text) : [];
+        tree.collapsed.clear();
+        tree.visible = tree.lines.slice();
+        renderFormatTree();
+    }
+
+    /** 折叠 / 展开某个节点 */
+    function toggleFormatFold(no) {
+        const tree = formatTree;
+        const line = tree.lines[no - 1];
+        if (!line || !line.isOpen) return;
+        if (tree.collapsed.has(no)) tree.collapsed.delete(no);
+        else tree.collapsed.add(no);
+        renderFormatTree();
+    }
+
+    /** 折叠全部（保留根节点展开，只收起第二层及以下） */
+    function foldAllFormat() {
+        const tree = formatTree;
+        if (!tree.text) {
+            toast('请先格式化 JSON', 'warning');
+            return;
+        }
+        tree.collapsed.clear();
+        tree.lines.forEach(line => {
+            if (line.isOpen && line.depth >= 1) tree.collapsed.add(line.no);
+        });
+        renderFormatTree();
+    }
+
+    /** 展开全部 */
+    function unfoldAllFormat() {
+        if (!formatTree.text) return;
+        formatTree.collapsed.clear();
+        renderFormatTree();
+    }
+
+    /** 给输出面板装上折叠树专用的行号栏 */
+    function initFormatTree() {
+        const pane = panes.get('formatOutput');
+        if (!pane) return;
+        pane.gutterBuilder = buildFormatGutter;
+        updatePane('formatOutput');
     }
 
     /* ---------------------------------------------------------
@@ -2493,7 +2691,507 @@
     }
 
     /* ---------------------------------------------------------
-     * 16. 事件绑定
+     * 16. 工具九：文本对比（通用 Diff）
+     *
+     * 逐行比较任意两份文本（SQL / Java / 日志 / 配置均可）。
+     *
+     * 核心是 Myers O(ND) 差分：
+     *   1) 掐掉公共头尾，剩下的中段做最短编辑脚本搜索；
+     *   2) 每层只记录 k ∈ [-d, d] 的推进量，内存 O(D²) 而非 O(D × 行数)；
+     *   3) 回溯得到「相同 / 删除 / 新增」的操作序列。
+     *
+     * 删除与新增成对出现时视为「修改」，再对这一对做一次字符级切分，
+     * 把真正改动的片段标出来。
+     * ------------------------------------------------------- */
+
+    /** 单次差分允许的最大编辑距离（同时约束耗时与内存） */
+    const DIFF_MAX_EDIT = 5000;
+    /** 单次差分的运算量预算 */
+    const DIFF_WORK_BUDGET = 20000000;
+
+    /**
+     * Myers O(ND) 差分。
+     * 返回 [{type:'eq'|'del'|'ins', a, b}]，a / b 为 0 基的行下标；
+     * 超过 maxD 时返回 null，由调用方按位置配对兜底。
+     */
+    function myersDiff(a, b, maxD) {
+        const n = a.length, m = b.length;
+        if (n === 0 && m === 0) return [];
+        if (n === 0) {
+            const ops = [];
+            for (let j = 0; j < m; j++) ops.push({ type: 'ins', a: null, b: j });
+            return ops;
+        }
+        if (m === 0) {
+            const ops = [];
+            for (let i = 0; i < n; i++) ops.push({ type: 'del', a: i, b: null });
+            return ops;
+        }
+        const max = n + m;
+        const offset = max + 1;
+        const v = new Int32Array(2 * max + 2);
+        // levels[d]：第 d 层结束后的 v 值（k = -d, -d+2, …, d），长度 d+1
+        const levels = [];
+        let done = -1;
+
+        for (let d = 0; d <= max; d++) {
+            for (let k = -d; k <= d; k += 2) {
+                let x;
+                if (k === -d || (k !== d && v[k - 1 + offset] < v[k + 1 + offset])) {
+                    x = v[k + 1 + offset];
+                } else {
+                    x = v[k - 1 + offset] + 1;
+                }
+                let y = x - k;
+                while (x < n && y < m && a[x] === b[y]) { x++; y++; }
+                v[k + offset] = x;
+                if (x >= n && y >= m) { done = d; break; }
+            }
+            if (done >= 0) break;
+            if (d >= maxD) return null;
+            const snap = new Int32Array(d + 1);
+            for (let j = 0; j <= d; j++) snap[j] = v[-d + 2 * j + offset];
+            levels.push(snap);
+        }
+        if (done < 0) return null;
+        return myersBacktrack(levels, n, m, done);
+    }
+
+    /** 回溯最短编辑脚本 */
+    function myersBacktrack(levels, n, m, done) {
+        let x = n, y = m;
+        const ops = [];
+        for (let d = done; d >= 0; d--) {
+            const before = d === 0 ? null : levels[d - 1];
+            const get = k => (d === 0 ? 0 : before[(k + (d - 1)) >> 1]);
+            const k = x - y;
+            let prevK;
+            if (k === -d || (k !== d && get(k - 1) < get(k + 1))) prevK = k + 1;
+            else prevK = k - 1;
+            const prevX = get(prevK);
+            const prevY = prevX - prevK;
+            while (x > prevX && y > prevY) {
+                ops.push({ type: 'eq', a: x - 1, b: y - 1 });
+                x--; y--;
+            }
+            if (d > 0) {
+                if (x === prevX) ops.push({ type: 'ins', a: null, b: prevY });
+                else ops.push({ type: 'del', a: prevX, b: null });
+            }
+            x = prevX; y = prevY;
+        }
+        ops.reverse();
+        return ops;
+    }
+
+    /**
+     * 行级差分：掐掉公共头尾后对中段做 Myers 差分。
+     * 差异过大（超出预算）时退化为按位置配对，保证界面不会卡死。
+     */
+    function diffLineOps(a, b) {
+        let start = 0;
+        while (start < a.length && start < b.length && a[start] === b[start]) start++;
+        let endA = a.length, endB = b.length;
+        while (endA > start && endB > start && a[endA - 1] === b[endB - 1]) { endA--; endB--; }
+
+        const head = [];
+        for (let i = 0; i < start; i++) head.push({ type: 'eq', a: i, b: i });
+
+        const midA = a.slice(start, endA);
+        const midB = b.slice(start, endB);
+        const maxD = Math.max(64, Math.min(
+            DIFF_MAX_EDIT,
+            Math.floor(DIFF_WORK_BUDGET / Math.max(1, midA.length + midB.length))
+        ));
+        const mid = myersDiff(midA, midB, maxD);
+
+        let body;
+        if (mid) {
+            body = mid.map(op => ({
+                type: op.type,
+                a: op.a === null ? null : op.a + start,
+                b: op.b === null ? null : op.b + start
+            }));
+        } else {
+            body = [];
+            const common = Math.min(midA.length, midB.length);
+            for (let i = 0; i < common; i++) {
+                if (midA[i] === midB[i]) {
+                    body.push({ type: 'eq', a: start + i, b: start + i });
+                } else {
+                    body.push({ type: 'del', a: start + i, b: null });
+                    body.push({ type: 'ins', a: null, b: start + i });
+                }
+            }
+            for (let i = common; i < midA.length; i++) body.push({ type: 'del', a: start + i, b: null });
+            for (let i = common; i < midB.length; i++) body.push({ type: 'ins', a: null, b: start + i });
+        }
+
+        const tail = [];
+        for (let i = 0; i < a.length - endA; i++) tail.push({ type: 'eq', a: endA + i, b: endB + i });
+        return head.concat(body, tail);
+    }
+
+    /** 把一行拆成「词 / 空白 / 单字符」三类 token，带字符偏移 */
+    function tokenizeForDiff(text) {
+        const tokens = [];
+        const re = /[A-Za-z0-9_]+|\s+|[^\s]/g;
+        let match;
+        while ((match = re.exec(text)) !== null) {
+            tokens.push({ s: match.index, e: match.index + match[0].length });
+        }
+        return tokens;
+    }
+
+    /**
+     * 字符级差异：返回两行各自「被改动片段」的字符区间 [start, end)。
+     *
+     * 先用与行级差分同一套 Myers 算法在 token 粒度上定位改动块，
+     * 再在块内收缩一次公共前后缀，把高亮收敛到真正变动的字符上。
+     */
+    function charDiffSegments(oldText, newText) {
+        const result = { old: [], new: [] };
+        if (oldText === newText) return result;
+
+        const ta = tokenizeForDiff(oldText);
+        const tb = tokenizeForDiff(newText);
+        const ops = diffLineOps(
+            ta.map(t => oldText.slice(t.s, t.e)),
+            tb.map(t => newText.slice(t.s, t.e))
+        );
+
+        let i = 0;
+        while (i < ops.length) {
+            if (ops[i].type === 'eq') { i++; continue; }
+            const oldPart = [];
+            const newPart = [];
+            while (i < ops.length && ops[i].type !== 'eq') {
+                if (ops[i].type === 'del') oldPart.push(ta[ops[i].a]);
+                else newPart.push(tb[ops[i].b]);
+                i++;
+            }
+            if (!oldPart.length && !newPart.length) continue;
+
+            const oldStart = oldPart.length ? oldPart[0].s : newPart[0].s;
+            const oldEnd = oldPart.length ? oldPart[oldPart.length - 1].e : oldStart;
+            const newStart = newPart.length ? newPart[0].s : oldStart;
+            const newEnd = newPart.length ? newPart[newPart.length - 1].e : newStart;
+
+            // 块内收缩公共前后缀
+            const oldChars = oldText.slice(oldStart, oldEnd);
+            const newChars = newText.slice(newStart, newEnd);
+            const maxP = Math.min(oldChars.length, newChars.length);
+            let p = 0;
+            while (p < maxP && oldChars[p] === newChars[p]) p++;
+            let s = 0;
+            while (s < maxP - p && oldChars[oldChars.length - 1 - s] === newChars[newChars.length - 1 - s]) s++;
+
+            if (oldPart.length) result.old.push([oldStart + p, oldEnd - s]);
+            if (newPart.length) result.new.push([newStart + p, newEnd - s]);
+        }
+        return result;
+    }
+
+    /** 最近一次对比结果（供复制 / 下载使用） */
+    let textDiffState = null;
+
+    /**
+     * 构建对比结果模型。
+     * 「忽略空白 / 大小写」只影响匹配用的键，原文始终按用户输入展示。
+     */
+    function buildTextDiffModel(textA, textB, options) {
+        const opts = options || {};
+        const linesA = normalizeLf(textA).split('\n');
+        const linesB = normalizeLf(textB).split('\n');
+
+        const keyOf = line => {
+            let v = line;
+            if (opts.ignoreSpace) v = v.replace(/\s+/g, '');
+            if (opts.ignoreCase) v = v.toLowerCase();
+            return v;
+        };
+
+        const ops = diffLineOps(linesA.map(keyOf), linesB.map(keyOf));
+
+        // 连续的非 eq 操作归并为一个「变更块」，块内 del / ins 按位置配对
+        const blocks = [];
+        let i = 0;
+        while (i < ops.length) {
+            if (ops[i].type === 'eq') { blocks.push({ type: 'eq', op: ops[i] }); i++; continue; }
+            const dels = [];
+            const inss = [];
+            while (i < ops.length && ops[i].type !== 'eq') {
+                if (ops[i].type === 'del') dels.push(ops[i].a);
+                else inss.push(ops[i].b);
+                i++;
+            }
+            blocks.push({ type: 'chg', dels, inss });
+        }
+
+        const rows = [];
+        const marksA = {};
+        const marksB = {};
+        let aNo = 0, bNo = 0;
+
+        blocks.forEach(block => {
+            if (block.type === 'eq') {
+                aNo++; bNo++;
+                rows.push({
+                    sign: ' ', aNo, bNo, aBefore: aNo - 1, bBefore: bNo - 1,
+                    text: linesA[block.op.a], mod: false, segs: []
+                });
+                return;
+            }
+            const pairs = Math.min(block.dels.length, block.inss.length);
+            const segs = [];
+            for (let p = 0; p < pairs; p++) {
+                segs.push(charDiffSegments(linesA[block.dels[p]], linesB[block.inss[p]]));
+            }
+            block.dels.forEach((idx, p) => {
+                aNo++;
+                const mod = p < pairs;
+                rows.push({
+                    sign: '-', aNo, bNo: null, aBefore: aNo - 1, bBefore: bNo,
+                    text: linesA[idx], mod, segs: mod ? segs[p].old : []
+                });
+                marksA[idx + 1] = mod ? 'hl-changed' : 'hl-removed';
+            });
+            block.inss.forEach((idx, p) => {
+                bNo++;
+                const mod = p < pairs;
+                rows.push({
+                    sign: '+', aNo: null, bNo, aBefore: aNo, bBefore: bNo - 1,
+                    text: linesB[idx], mod, segs: mod ? segs[p].new : []
+                });
+                marksB[idx + 1] = mod ? 'hl-changed' : 'hl-added';
+            });
+        });
+
+        const stats = { added: 0, removed: 0, modified: 0 };
+        rows.forEach(row => {
+            if (row.sign === '-' && !row.mod) stats.removed++;
+            else if (row.sign === '+' && !row.mod) stats.added++;
+        });
+        stats.modified = rows.filter(row => row.mod).length / 2;
+        stats.total = stats.added + stats.removed + stats.modified;
+
+        return { rows, marksA, marksB, stats, linesA, linesB };
+    }
+
+    /** 按上下文行数把差异行归并成 hunk */
+    function buildDiffHunks(rows, context) {
+        const changed = [];
+        rows.forEach((row, idx) => { if (row.sign !== ' ') changed.push(idx); });
+        if (!changed.length) return [];
+        const groups = [];
+        let s = changed[0];
+        let e = changed[0];
+        for (let k = 1; k < changed.length; k++) {
+            // 两个差异之间的相同行不超过 2 倍上下文时，合并进同一个 hunk
+            if (changed[k] - e - 1 <= context * 2) e = changed[k];
+            else { groups.push([s, e]); s = changed[k]; e = changed[k]; }
+        }
+        groups.push([s, e]);
+        return groups.map(range => [
+            Math.max(0, range[0] - context),
+            Math.min(rows.length - 1, range[1] + context)
+        ]);
+    }
+
+    /** 生成标准 unified diff 的 hunk 头 */
+    function diffHunkHeader(slice) {
+        let aCount = 0, bCount = 0, firstA = null, firstB = null;
+        slice.forEach(row => {
+            if (row.sign === ' ' || row.sign === '-') { aCount++; if (!firstA) firstA = row; }
+            if (row.sign === ' ' || row.sign === '+') { bCount++; if (!firstB) firstB = row; }
+        });
+        const aStart = aCount > 0 ? firstA.aNo : slice[0].aBefore;
+        const bStart = bCount > 0 ? firstB.bNo : slice[0].bBefore;
+        return '@@ -' + aStart + ',' + aCount + ' +' + bStart + ',' + bCount + ' @@';
+    }
+
+    /** 生成标准 unified diff 文本（可直接 patch / git apply） */
+    function buildPatchText(model, hunks) {
+        const out = ['--- 文本A', '+++ 文本B'];
+        hunks.forEach(range => {
+            const slice = model.rows.slice(range[0], range[1] + 1);
+            out.push(diffHunkHeader(slice));
+            slice.forEach(row => {
+                out.push((row.sign === ' ' ? ' ' : row.sign) + row.text);
+            });
+        });
+        return out.join('\n');
+    }
+
+    /** 把行内被改动的片段包上高亮标签 */
+    function renderSegments(text, segs) {
+        if (!segs || !segs.length) return escapeHtml(text);
+        let html = '';
+        let pos = 0;
+        segs.forEach(range => {
+            const s = Math.max(pos, range[0]);
+            const e = Math.min(text.length, range[1]);
+            if (e <= s) return;
+            html += escapeHtml(text.slice(pos, s));
+            html += '<span class="tdiff__seg">' + escapeHtml(text.slice(s, e)) + '</span>';
+            pos = e;
+        });
+        return html + escapeHtml(text.slice(pos));
+    }
+
+    /** 渲染差异明细面板 */
+    function renderTextDiffResult(model, hunks) {
+        const box = $('#textDiffResult');
+        if (!box) return;
+        if (!model) {
+            box.innerHTML = '<div class="empty"><span class="empty__icon">≣</span>' +
+                '<p>点击「对比」开始分析两份文本的差异</p></div>';
+            return;
+        }
+        if (!model.stats.total) {
+            box.innerHTML = '<div class="empty"><span class="empty__icon">✓</span>' +
+                '<p>两份文本完全相同</p></div>';
+            return;
+        }
+
+        let html = '';
+        hunks.forEach(range => {
+            const slice = model.rows.slice(range[0], range[1] + 1);
+            html += '<div class="tdiff__hunk">' + escapeHtml(diffHunkHeader(slice)) + '</div>';
+            slice.forEach(row => {
+                let cls = 'tdiff__row--ctx';
+                if (row.sign === '-') cls = row.mod ? 'tdiff__row--mod' : 'tdiff__row--del';
+                else if (row.sign === '+') cls = row.mod ? 'tdiff__row--mod' : 'tdiff__row--ins';
+                html += '<div class="tdiff__row ' + cls + '">' +
+                    '<span class="tdiff__no">' + (row.aNo === null ? '' : row.aNo) + '</span>' +
+                    '<span class="tdiff__no">' + (row.bNo === null ? '' : row.bNo) + '</span>' +
+                    '<span class="tdiff__mark">' + (row.sign === ' ' ? '' : row.sign) + '</span>' +
+                    '<span class="tdiff__text">' + renderSegments(row.text, row.segs) + '</span>' +
+                    '</div>';
+            });
+        });
+        box.innerHTML = html;
+    }
+
+    /** 在输入框上叠加差异高亮（与 JSON 对比同一套覆盖层机制） */
+    function renderTextDiffOverlay(paneId, text, markMap) {
+        const pane = panes.get(paneId);
+        if (!pane || !pane.overlay) return;
+        const lines = normalizeLf(text).split('\n');
+        let html = '';
+        lines.forEach((line, index) => {
+            const cls = markMap[index + 1] || '';
+            html += '<div class="hl-line ' + cls + '">' + escapeHtml(line) + '</div>';
+        });
+        pane.overlay.innerHTML = html;
+        paintGutterHighlights(paneId, markMap);
+        syncPaneScroll(paneId);
+    }
+
+    /** 清空对比结果与高亮 */
+    function resetTextDiffResult() {
+        textDiffState = null;
+        clearDiffMarks('textDiffInputA');
+        clearDiffMarks('textDiffInputB');
+        setStat('textdiff.removed', '删除 0');
+        setStat('textdiff.added', '新增 0');
+        setStat('textdiff.modified', '修改 0');
+        setStat('textdiff.total', '总差异 0');
+        renderTextDiffResult(null);
+    }
+
+    function runTextDiff(button) {
+        const textA = paneText('textDiffInputA');
+        const textB = paneText('textDiffInputB');
+        if (!textA && !textB) {
+            toast('请输入两份文本进行对比', 'warning');
+            return;
+        }
+        const options = {
+            ignoreSpace: $('#textDiffIgnoreSpace').checked,
+            ignoreCase: $('#textDiffIgnoreCase').checked,
+            context: parseInt($('#textDiffContext').value, 10) || 0
+        };
+        busy(button, true);
+        setTimeout(() => {
+            try {
+                const model = buildTextDiffModel(textA, textB, options);
+                const hunks = buildDiffHunks(model.rows, options.context);
+                textDiffState = { model, hunks, patch: buildPatchText(model, hunks) };
+                renderTextDiffResult(model, hunks);
+                renderTextDiffOverlay('textDiffInputA', textA, model.marksA);
+                renderTextDiffOverlay('textDiffInputB', textB, model.marksB);
+                setStat('textdiff.removed', '删除 ' + model.stats.removed);
+                setStat('textdiff.added', '新增 ' + model.stats.added);
+                setStat('textdiff.modified', '修改 ' + model.stats.modified);
+                setStat('textdiff.total', '总差异 ' + model.stats.total);
+                toast(model.stats.total
+                    ? '对比完成，共 ' + model.stats.total + ' 处差异'
+                    : '两份文本完全相同', 'success');
+            } catch (error) {
+                console.error('文本对比错误:', error);
+                toast('对比失败，请重试', 'error');
+            } finally {
+                busy(button, false);
+            }
+        }, 60);
+    }
+
+    function swapTextDiff() {
+        const a = $('#textDiffInputA');
+        const b = $('#textDiffInputB');
+        if (!a || !b) return;
+        const tmp = a.value;
+        a.value = b.value;
+        b.value = tmp;
+        updatePane('textDiffInputA');
+        updatePane('textDiffInputB');
+        resetTextDiffResult();
+        toast('已交换两侧文本', 'info');
+    }
+
+    function clearTextDiff() {
+        $('#textDiffInputA').value = '';
+        $('#textDiffInputB').value = '';
+        updatePane('textDiffInputA');
+        updatePane('textDiffInputB');
+        resetTextDiffResult();
+        toast('所有输入已清空', 'info');
+    }
+
+    /** 读取文本文件：优先 UTF-8，失败再按 GBK 兜底（中文日志常见） */
+    async function readTextFileAuto(file) {
+        const buffer = await file.arrayBuffer();
+        try {
+            return new TextDecoder('utf-8', { fatal: true }).decode(buffer);
+        } catch (e) {
+            try {
+                return new TextDecoder('gbk').decode(buffer);
+            } catch (e2) {
+                return new TextDecoder('utf-8').decode(buffer);
+            }
+        }
+    }
+
+    async function loadTextDiffFile(file, side) {
+        if (!file) return;
+        const paneId = side === 'B' ? 'textDiffInputB' : 'textDiffInputA';
+        try {
+            const text = await readTextFileAuto(file);
+            const area = $('#' + paneId);
+            if (!area) return;
+            area.value = text;
+            updatePane(paneId);
+            resetTextDiffResult();
+            toast('已载入 ' + file.name, 'success');
+        } catch (error) {
+            console.error('读取文件失败:', error);
+            toast('文件读取失败', 'error');
+        }
+    }
+
+    /* ---------------------------------------------------------
+     * 17. 事件绑定
      * ------------------------------------------------------- */
 
     const ACTIONS = {
@@ -2503,6 +3201,8 @@
         'format.run': runFormat,
         'format.sort': runFormatSort,
         'format.clear': clearFormat,
+        'format.foldAll': foldAllFormat,
+        'format.unfoldAll': unfoldAllFormat,
         'panel.fullscreen': trigger => {
             const target = trigger.dataset.fullscreenTarget;
             if (target) togglePanelFullscreen(target);
@@ -2552,7 +3252,21 @@
         'md5.run': runMd5,
         'md5.clear': clearMd5,
         'md5.copy': () => copyText(paneText('md5Output')),
-        'md5.download': () => downloadFile('md5.txt', paneText('md5Output'))
+        'md5.download': () => downloadFile('md5.txt', paneText('md5Output')),
+
+        'textdiff.run': runTextDiff,
+        'textdiff.swap': swapTextDiff,
+        'textdiff.clear': clearTextDiff,
+        'textdiff.pickA': () => $('#textDiffFileA').click(),
+        'textdiff.pickB': () => $('#textDiffFileB').click(),
+        'textdiff.copy': () => {
+            if (!textDiffState) { toast('请先点击「对比」', 'warning'); return; }
+            copyText(textDiffState.patch);
+        },
+        'textdiff.download': () => {
+            if (!textDiffState) { toast('请先点击「对比」', 'warning'); return; }
+            downloadFile('text-diff.diff', textDiffState.patch, 'text/plain;charset=utf-8');
+        }
     };
 
     function bindEvents() {
@@ -2567,6 +3281,14 @@
             }
         });
 
+        // 折叠树：点击行号栏的箭头或行尾提示，折叠 / 展开节点
+        document.addEventListener('click', e => {
+            const trigger = e.target.closest('[data-fold]');
+            if (!trigger) return;
+            e.preventDefault();
+            toggleFormatFold(Number(trigger.dataset.fold));
+        });
+
         // 断言输入防抖自动生成
         $('#assertInput').addEventListener('input', () => {
             clearTimeout(assertDebounceTimer);
@@ -2574,6 +3296,23 @@
         });
         $('#assertInclude').addEventListener('input', () => runAssert());
         $('#assertExclude').addEventListener('input', () => runAssert());
+
+        // 文本对比：打开文件 / 选项变化后自动重跑
+        $('#textDiffFileA').addEventListener('change', e => {
+            const file = e.target.files && e.target.files[0];
+            e.target.value = '';
+            loadTextDiffFile(file, 'A');
+        });
+        $('#textDiffFileB').addEventListener('change', e => {
+            const file = e.target.files && e.target.files[0];
+            e.target.value = '';
+            loadTextDiffFile(file, 'B');
+        });
+        ['#textDiffIgnoreSpace', '#textDiffIgnoreCase', '#textDiffContext'].forEach(selector => {
+            $(selector).addEventListener('change', () => {
+                if (textDiffState) runTextDiff();
+            });
+        });
 
         // 主题 / 换行
         $('#themeToggle').addEventListener('click', toggleTheme);
@@ -2635,7 +3374,7 @@
                 }
             }
             if (typing) return;
-            if (e.ctrlKey && e.shiftKey && /^[1-8]$/.test(e.key)) {
+            if (e.ctrlKey && e.shiftKey && /^[1-9]$/.test(e.key)) {
                 e.preventDefault();
                 navigate(TOOL_ROUTES[Number(e.key) - 1]);
             }
@@ -2648,7 +3387,7 @@
             const map = {
                 format: 'format.run', compare: 'compare.run', assert: 'assert.run',
                 uid: 'uid.run', idreplace: 'idreplace.run', groovy: 'groovy.run',
-                billrule: 'billrule.run', md5: 'md5.run'
+                billrule: 'billrule.run', md5: 'md5.run', textdiff: 'textdiff.run'
             };
             const action = map[route];
             if (!action) return;
@@ -2680,7 +3419,7 @@
     }
 
     /* ---------------------------------------------------------
-     * 17. 首页演示代码
+     * 18. 首页演示代码
      * ------------------------------------------------------- */
 
     const HERO_SAMPLE = {
@@ -2703,7 +3442,7 @@
     }
 
     /* ---------------------------------------------------------
-     * 18. 启动
+     * 19. 启动
      * ------------------------------------------------------- */
 
     function init() {
@@ -2712,6 +3451,7 @@
         applyWrap(!!prefs.wrap);
 
         initPanes();
+        initFormatTree();
         initSelectableBlocks();
         bindEvents();
         renderHero();

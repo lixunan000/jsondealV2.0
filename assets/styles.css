@@ -783,6 +783,59 @@ body.is-locked { overflow: hidden; }
 .is-wrap .editor__area,
 .is-wrap .editor__overlay { white-space: pre-wrap; word-break: break-word; }
 
+/* =========================================================
+   JSON 折叠树：输出区行号栏带折叠箭头
+   ========================================================= */
+.editor--fold { --gutter-w: 78px; }
+
+.editor__gutter .gutter__row {
+    display: flex;
+    align-items: center;
+    justify-content: flex-end;
+    gap: 6px;
+}
+
+.editor__gutter .gutter__num { flex: none; }
+
+.editor__gutter .gutter__fold {
+    flex: none;
+    position: relative;
+    width: 12px;
+    height: 12px;
+    color: var(--muted);
+    opacity: .55;
+    cursor: pointer;
+    transition: opacity .12s ease, color .12s ease;
+}
+
+.editor__gutter .gutter__fold.is-empty { visibility: hidden; }
+
+.editor__gutter .gutter__fold::before {
+    content: '';
+    position: absolute;
+    left: 3px;
+    top: 1px;
+    border-left: 5px solid currentColor;
+    border-top: 4px solid transparent;
+    border-bottom: 4px solid transparent;
+    /* 展开时朝下，折叠时朝右 */
+    transform: rotate(90deg);
+    transition: transform .12s ease;
+}
+
+.editor__gutter .gutter__fold.is-collapsed::before { transform: rotate(0deg); }
+.editor__gutter .gutter__fold:hover { opacity: 1; color: var(--primary); }
+
+/* 折叠后行尾的条目数提示 */
+.json-fold-hint {
+    color: var(--muted);
+    cursor: pointer;
+    user-select: none;
+    -webkit-user-select: none;
+}
+
+.json-fold-hint:hover { color: var(--primary); }
+
 /* JSON 语法高亮 */
 .tok-key { color: var(--tok-key); }
 .tok-str { color: var(--tok-str); }
@@ -926,6 +979,97 @@ body.is-locked { overflow: hidden; }
 .diff-group--removed .diff-group__title { color: var(--danger); }
 .diff-group--added .diff-group__title { color: var(--success); }
 .diff-group--changed .diff-group__title { color: var(--hl-changed); }
+
+/* =========================================================
+   文本对比（通用 Diff）
+   ========================================================= */
+
+/* 复选框组 */
+.check-row { display: flex; align-items: center; gap: 16px; flex-wrap: wrap; height: 36px; }
+.check { display: inline-flex; align-items: center; gap: 7px; font-size: 13px; color: var(--text-soft); cursor: pointer; user-select: none; }
+.check input { width: 15px; height: 15px; accent-color: var(--primary); cursor: pointer; }
+.check:hover { color: var(--text); }
+
+/* 下拉框 */
+.field__select {
+    height: 36px;
+    min-width: 200px;
+    padding: 0 10px;
+    border-radius: 9px;
+    border: 1px solid var(--border);
+    background: var(--surface-2);
+    color: var(--text);
+    font-size: 13px;
+    outline: none;
+    cursor: pointer;
+    transition: border-color .16s ease, box-shadow .16s ease;
+}
+.field__select:focus { border-color: var(--primary); box-shadow: 0 0 0 3px var(--primary-soft); }
+
+.filter-bar__hint b { color: var(--text-soft); font-weight: 650; }
+
+/* 差异结果：左右两栏并排的行 */
+.tdiff {
+    font-family: var(--font-mono);
+    font-size: var(--code-size);
+    line-height: var(--code-lh);
+    display: flex;
+    flex-direction: column;
+}
+
+/* 一行差异 */
+.tdiff__row { display: flex; align-items: flex-start; }
+.tdiff__row--del { background: var(--hl-removed-bg); }
+.tdiff__row--ins { background: var(--hl-added-bg); }
+.tdiff__row--mod { background: var(--hl-changed-soft); }
+.tdiff__row--ctx { color: var(--text-soft); }
+
+/* 行号（左、右各一列） */
+.tdiff__no {
+    flex: none;
+    width: 46px;
+    padding-right: 8px;
+    text-align: right;
+    color: var(--muted);
+    user-select: none;
+    font-variant-numeric: tabular-nums;
+}
+.tdiff__row--del .tdiff__no { color: var(--hl-removed); }
+.tdiff__row--ins .tdiff__no { color: var(--hl-added); }
+.tdiff__row--mod .tdiff__no { color: var(--hl-changed); }
+
+/* 差异标记 */
+.tdiff__mark {
+    flex: none;
+    width: 18px;
+    text-align: center;
+    user-select: none;
+    font-weight: 700;
+}
+.tdiff__row--del .tdiff__mark { color: var(--hl-removed); }
+.tdiff__row--ins .tdiff__mark { color: var(--hl-added); }
+.tdiff__row--mod .tdiff__mark { color: var(--hl-changed); }
+
+/* 行内容 */
+.tdiff__text { flex: 1; min-width: 0; white-space: pre-wrap; overflow-wrap: anywhere; padding-right: 12px; }
+
+/* 行内字符级高亮 */
+.tdiff__seg { border-radius: 3px; padding: 0 1px; }
+.tdiff__row--del .tdiff__seg { background: rgba(220, 38, 38, .38); }
+.tdiff__row--ins .tdiff__seg { background: rgba(22, 163, 74, .38); }
+.tdiff__row--mod .tdiff__seg {
+    background: var(--hl-changed-bg);
+    box-shadow: inset 0 0 0 1px var(--hl-changed);
+}
+
+/* hunk 头 */
+.tdiff__hunk {
+    color: var(--primary);
+    background: var(--primary-soft);
+    padding: 3px 12px;
+    font-weight: 600;
+    user-select: none;
+}
 
 /* =========================================================
    上传区 & 文件列表
