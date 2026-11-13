@@ -259,6 +259,9 @@
         document.title = meta.title + ' · JsonDeal';
         closeSidebar();
         window.scrollTo(0, 0);
+        // 内容区是独立的滚动容器，切换工具时要把它一起归位
+        const content = $('#content');
+        if (content) content.scrollTop = 0;
         // 视图可见后宽度才准确，此时重算行号
         refreshPanes();
     }
@@ -477,16 +480,18 @@
         const text = paneDisplayText(id);
         const lines = text ? text.split('\n') : [''];
         if (pane.gutter) {
+            // 排版参数只测一次，避免逐行触发 getComputedStyle
+            const metrics = paneMetrics(pane);
             if (typeof pane.gutterBuilder === 'function') {
                 // 由工具自行决定行号栏长什么样（如 JSON 折叠树的折叠箭头）
-                pane.gutterBuilder(pane.gutter, lines);
+                pane.gutterBuilder(pane.gutter, lines, metrics);
             } else {
+                const rows = paneRowsBatch(pane, lines, metrics);
                 let html = '';
                 for (let i = 0; i < lines.length; i++) {
                     html += '<div>' + (i + 1) + '</div>';
                     // 折行的逻辑行补齐空行，保证行号与内容始终对齐
-                    const extra = paneRows(pane, lines[i]) - 1;
-                    for (let k = 0; k < extra; k++) html += '<div class="gutter__pad"></div>';
+                    for (let k = 1; k < rows[i]; k++) html += '<div class="gutter__pad"></div>';
                 }
                 pane.gutter.innerHTML = html;
             }
@@ -507,43 +512,80 @@
         return document.body.classList.contains('is-wrap');
     }
 
-    function paneContentWidth(pane) {
+    /**
+     * 面板的排版参数（可用宽度、字号、行高、单行容量）。
+     * 一次测量供所有行复用 —— 逐行调用 getComputedStyle 会让大 JSON 明显卡顿。
+     */
+    function paneMetrics(pane) {
         const el = pane.code || pane.area;
-        if (!el || !el.clientWidth) return 0;
+        if (!el || !el.clientWidth) return null;
         const cs = getComputedStyle(el);
-        return el.clientWidth - (parseFloat(cs.paddingLeft) || 0) - (parseFloat(cs.paddingRight) || 0);
-    }
-
-    /** 某一行在当前宽度下实际占用的视觉行数 */
-    function paneRows(pane, line) {
-        if (!paneWrapEnabled(pane) || !line) return 1;
-        const width = paneContentWidth(pane);
-        if (width <= 0) return 1;
-
-        const cs = getComputedStyle(pane.code || pane.area);
+        const width = el.clientWidth - (parseFloat(cs.paddingLeft) || 0) - (parseFloat(cs.paddingRight) || 0);
+        if (width <= 0) return null;
         const fontSize = parseFloat(cs.fontSize) || 13;
         const lineHeight = parseFloat(cs.lineHeight) || fontSize * 1.6;
-        // 等宽字体粗略估算单行容量，短行直接判定为 1 行，避免逐行触发重排
-        const approxChars = Math.floor(width / (fontSize * 0.62));
-        if (line.length <= approxChars) return 1;
+        return {
+            width: width,
+            lineHeight: lineHeight,
+            // 等宽字体粗略估算单行容量，短行直接判定为 1 行，避免逐行触发重排
+            approxChars: Math.floor(width / (fontSize * 0.62)),
+            fontFamily: cs.fontFamily,
+            fontSizeCss: cs.fontSize,
+            lineHeightCss: cs.lineHeight,
+            letterSpacing: cs.letterSpacing,
+            whiteSpace: cs.whiteSpace,
+            wordBreak: cs.wordBreak,
+            overflowWrap: cs.overflowWrap
+        };
+    }
+
+    /**
+     * 批量测量：一批行各自占用的视觉行数。
+     *
+     * 逐行读取 offsetHeight 会每行触发一次「全文档重排」，
+     * 几万行的 JSON 会直接把页面卡死。这里把所有待测行一次性塞进
+     * 离屏容器，只触发一次重排，之后连续读取不再重排。
+     */
+    function paneRowsBatch(pane, lines, metrics) {
+        const rows = new Array(lines.length).fill(1);
+        const m = metrics || paneMetrics(pane);
+        if (!m || !paneWrapEnabled(pane)) return rows;
+
+        // 短行按 1 行处理，只有可能折行的行才需要精确测量
+        const need = [];
+        lines.forEach((line, i) => {
+            if (line && line.length > m.approxChars) need.push(i);
+        });
+        if (!need.length) return rows;
 
         if (!measurer) {
             measurer = document.createElement('div');
             measurer.setAttribute('aria-hidden', 'true');
             measurer.style.cssText = 'position:absolute;left:0;top:0;visibility:hidden;' +
-                'pointer-events:none;white-space:pre;';
+                'pointer-events:none;white-space:pre;contain:layout style;';
             document.body.appendChild(measurer);
         }
-        measurer.style.fontFamily = cs.fontFamily;
-        measurer.style.fontSize = cs.fontSize;
-        measurer.style.lineHeight = cs.lineHeight;
-        measurer.style.letterSpacing = cs.letterSpacing;
-        measurer.style.whiteSpace = cs.whiteSpace;
-        measurer.style.wordBreak = cs.wordBreak;
-        measurer.style.overflowWrap = cs.overflowWrap;
-        measurer.style.width = width + 'px';
-        measurer.textContent = line;
-        return Math.max(1, Math.round(measurer.offsetHeight / lineHeight));
+        measurer.style.fontFamily = m.fontFamily;
+        measurer.style.fontSize = m.fontSizeCss;
+        measurer.style.lineHeight = m.lineHeightCss;
+        measurer.style.letterSpacing = m.letterSpacing;
+        measurer.style.whiteSpace = m.whiteSpace;
+        measurer.style.wordBreak = m.wordBreak;
+        measurer.style.overflowWrap = m.overflowWrap;
+        measurer.style.width = m.width + 'px';
+
+        const kids = need.map(i => {
+            const kid = document.createElement('div');
+            kid.textContent = lines[i];
+            measurer.appendChild(kid);
+            return kid;
+        });
+        // 上面所有 appendChild 之后只触发一次重排，接下来的读取不会再重排
+        kids.forEach((kid, k) => {
+            rows[need[k]] = Math.max(1, Math.round(kid.offsetHeight / m.lineHeight));
+        });
+        measurer.textContent = '';
+        return rows;
     }
 
     function syncPaneScroll(id) {
@@ -580,9 +622,13 @@
         if (el) el.textContent = value;
     }
 
+    /** JSON 语法高亮的分词规则（提到函数外，避免每次调用都重新编译正则） */
+    const JSON_TOKEN_RE = /("(?:\\.|[^"\\])*")(\s*:)?|\b(?:true|false)\b|\bnull\b|-?\d+(?:\.\d+)?(?:[eE][+-]?\d+)?/g;
+
     /** 轻量 JSON 语法高亮 */
     function highlightJson(source) {
-        const re = /("(?:\\.|[^"\\])*")(\s*:)?|\b(?:true|false)\b|\bnull\b|-?\d+(?:\.\d+)?(?:[eE][+-]?\d+)?/g;
+        const re = JSON_TOKEN_RE;
+        re.lastIndex = 0;
         let out = '';
         let last = 0;
         let match;
@@ -849,12 +895,8 @@
             } else {
                 line.parent = stack.length ? stack[stack.length - 1] : null;
             }
-        });
-
-        // 直接子节点数量（收尾行不计入）
-        lines.forEach(line => {
-            if (!line.isOpen) return;
-            line.childCount = lines.filter(child => child.parent === line && !child.isClose).length;
+            // 直接子节点计数（收尾行不算子节点）—— 边走边数，整体 O(n)
+            if (line.parent && !line.isClose) line.parent.childCount++;
         });
 
         return lines;
@@ -902,22 +944,29 @@
             return '<span class="json-line">' + highlightJson(line.raw) + hint + '</span>';
         }).join('\n');
 
+        const __t1 = performance.now();
         pane.code.innerHTML = html;
+        const __t2 = performance.now();
         // 复制 / 下载始终拿到完整的格式化 JSON
         pane.canonical = tree.text;
         updatePane('formatOutput');
+        const __t3 = performance.now();
+        console.log('[PERF] html=' + Math.round(__t2 - __t1) + 'ms updatePane=' + Math.round(__t3 - __t2) +
+            'ms lines=' + visible.length);
     }
 
     /** 折叠树的行号栏：行号 + 折叠箭头 */
-    function buildFormatGutter(gutter) {
+    function buildFormatGutter(gutter, lines, metrics) {
         const tree = formatTree;
         if (!tree.text) {
             gutter.innerHTML = '<div>1</div>';
             return;
         }
         const pane = panes.get('formatOutput');
+        const raws = tree.visible.map(line => line.raw);
+        const rows = paneRowsBatch(pane, raws, metrics);
         let html = '';
-        tree.visible.forEach(line => {
+        tree.visible.forEach((line, i) => {
             const collapsed = tree.collapsed.has(line.no);
             const arrow = line.isOpen
                 ? '<i class="gutter__fold' + (collapsed ? ' is-collapsed' : '') + '" data-fold="' +
@@ -925,20 +974,21 @@
                 : '<i class="gutter__fold is-empty"></i>';
             html += '<div class="gutter__row">' + arrow + '<span class="gutter__num">' + line.no + '</span></div>';
             // 折行的逻辑行补齐空行，保证行号与内容始终对齐
-            const extra = paneRows(pane, line.raw) - 1;
-            for (let k = 0; k < extra; k++) html += '<div class="gutter__pad"></div>';
+            for (let k = 1; k < rows[i]; k++) html += '<div class="gutter__pad"></div>';
         });
         gutter.innerHTML = html;
     }
 
     /** 输出折叠树（格式化 / 排序后的统一入口） */
     function setFormatOutput(text) {
+        const __t0 = performance.now();
         const tree = formatTree;
         tree.text = text || '';
         tree.lines = tree.text ? analyzeJsonTree(tree.text) : [];
         tree.collapsed.clear();
         tree.visible = tree.lines.slice();
         renderFormatTree();
+        console.log('[PERF] setFormatOutput total=' + Math.round(performance.now() - __t0) + 'ms');
     }
 
     /** 折叠 / 展开某个节点 */

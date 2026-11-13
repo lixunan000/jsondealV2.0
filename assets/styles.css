@@ -117,7 +117,8 @@
 
 [hidden] { display: none !important; }
 
-html, body { height: 100%; }
+/* 应用外壳：整页本身不滚动，滚动交给内容区，页脚常驻窗口底部 */
+html, body { height: 100%; overflow: hidden; }
 
 body {
     font-family: var(--font-sans);
@@ -151,7 +152,7 @@ input, textarea { font-family: inherit; }
    布局
    ========================================================= */
 
-.app { display: flex; min-height: 100vh; }
+.app { display: flex; height: 100vh; overflow: hidden; }
 
 .sidebar {
     width: var(--sidebar-w);
@@ -160,9 +161,9 @@ input, textarea { font-family: inherit; }
     border-right: 1px solid var(--border);
     display: flex;
     flex-direction: column;
-    position: sticky;
-    top: 0;
-    height: 100vh;
+    /* 外壳固定为窗口高度，侧边栏常驻，不需要 sticky */
+    height: 100%;
+    min-height: 0;
     z-index: 40;
 }
 
@@ -191,7 +192,7 @@ input, textarea { font-family: inherit; }
 .brand__text strong { font-size: 15.5px; letter-spacing: .2px; }
 .brand__text small { color: var(--muted); font-size: 11.5px; }
 
-.nav { flex: 1; overflow-y: auto; padding: 4px 12px 12px; }
+.nav { flex: 1 1 auto; min-height: 0; overflow-y: auto; padding: 4px 12px 12px; }
 
 .nav__label {
     font-size: 11px;
@@ -251,7 +252,7 @@ input, textarea { font-family: inherit; }
 
 .nav__item.is-active .nav__kbd { background: transparent; border-color: transparent; color: var(--primary); }
 
-.sidebar__foot { padding: 14px 16px 18px; border-top: 1px solid var(--border); }
+.sidebar__foot { flex: 0 0 auto; padding: 14px 16px 18px; border-top: 1px solid var(--border); }
 
 .side-toggle {
     width: 100%;
@@ -272,15 +273,14 @@ input, textarea { font-family: inherit; }
 
 .sidebar__scrim { display: none; }
 
-.main { flex: 1; min-width: 0; display: flex; flex-direction: column; }
+.main { flex: 1; min-width: 0; min-height: 0; height: 100%; display: flex; flex-direction: column; }
 
 /* =========================================================
    顶栏
    ========================================================= */
 
 .topbar {
-    position: sticky;
-    top: 0;
+    flex: 0 0 auto;
     z-index: 30;
     display: flex;
     align-items: center;
@@ -291,7 +291,8 @@ input, textarea { font-family: inherit; }
     border-bottom: 1px solid var(--border);
 }
 
-.topbar__menu { display: none; }
+/* 抽屉菜单按钮只在窄屏出现（选择器要压过 .icon-btn 的 display: grid） */
+.topbar .topbar__menu { display: none; }
 
 .topbar__heading { flex: 1; min-width: 0; }
 .topbar__heading h1 { font-size: 17px; font-weight: 650; letter-spacing: .2px; }
@@ -348,14 +349,19 @@ kbd {
    ========================================================= */
 
 .content {
-    flex: 1;
+    flex: 1 1 auto;
+    min-height: 0;
     width: 100%;
-    max-width: 1560px;
-    margin: 0 auto;
+    overflow-y: auto;
+    overflow-x: hidden;
     padding: 26px 30px 40px;
 }
 
-.view { animation: fadeUp .26s ease both; }
+.view {
+    max-width: 1560px;
+    margin: 0 auto;
+    animation: fadeUp .26s ease both;
+}
 
 @keyframes fadeUp {
     from { opacity: 0; transform: translateY(8px); }
@@ -1223,7 +1229,8 @@ body.is-locked { overflow: hidden; }
    ========================================================= */
 
 .footer {
-    padding: 18px 30px 26px;
+    flex: 0 0 auto;
+    padding: 9px 30px 11px;
     text-align: center;
     color: var(--muted);
     font-size: 12px;
@@ -1245,6 +1252,7 @@ body.is-locked { overflow: hidden; }
     .sidebar {
         position: fixed;
         left: 0; top: 0; bottom: 0;
+        height: 100vh;
         transform: translateX(-100%);
         transition: transform .24s ease;
         box-shadow: var(--shadow-lg);
@@ -1261,7 +1269,7 @@ body.is-locked { overflow: hidden; }
         z-index: 39;
     }
     .sidebar__scrim.is-open { opacity: 1; pointer-events: auto; }
-    .topbar__menu { display: grid; }
+    .topbar .topbar__menu { display: grid; }
     .content { padding: 20px 16px 32px; }
     .topbar { padding: 12px 16px; }
     .ghost-btn__text { display: none; }
